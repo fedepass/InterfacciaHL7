@@ -33,6 +33,6 @@ export class CappeController {
 
   @Get(':id/queue')
   getQueue(@Param('id') id: string) {
-    return this.cappeService.getQueue(id);
+    return this.cappeService.getQueue(id); // NestJS risolve automaticamente la Promise
   }
 }

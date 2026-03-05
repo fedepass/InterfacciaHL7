@@ -13,14 +13,6 @@ export class PrescriptionsController {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Riceve una prescrizione in formato HL7 v2, FHIR JSON o FHIR XML.
-   * Content-Type:
-   *   - text/plain o x-hl7-v2+er7 → HL7 v2
-   *   - application/json o application/fhir+json → FHIR JSON
-   *   - application/xml o application/fhir+xml → FHIR XML
-   *   - (auto-detect se non specificato)
-   */
   @Post()
   async receive(@Req() req: Request, @Res() res: Response) {
     try {
@@ -35,7 +27,7 @@ export class PrescriptionsController {
         return res.status(HttpStatus.BAD_REQUEST).json({ error: 'Body vuoto o non leggibile' });
       }
 
-      this.prescriptionsService.receive(raw);
+      await this.prescriptionsService.receive(raw);
       return res.status(HttpStatus.CREATED).send();
     } catch (e) {
       const status = e.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
@@ -44,21 +36,27 @@ export class PrescriptionsController {
   }
 
   @Get()
-  findAll(
+  async findAll(
     @Query('status') status?: string,
     @Query('cappaId') cappaId?: string,
+    @Query('raw') raw?: string,
     @Res() res?: Response,
   ) {
-    const results = this.prescriptionsService.findAll(status, cappaId);
-    const ids = results.map(p => p.prescriptionId);
-    const filtered = results.map(p => this.configService.applyOutputFilter(p as unknown as Record<string, any>));
-    res.on('finish', () => ids.forEach(id => this.prescriptionsService.markAsSent(id)));
-    res.json(filtered);
+    const results = await this.prescriptionsService.findAll(status, cappaId);
+    const ids = results.map((p) => p.prescriptionId);
+    const useRaw = raw === 'true' || raw === '1';
+    const output = useRaw
+      ? results
+      : results.map((p) => this.configService.applyOutputFilter(p as unknown as Record<string, any>));
+    if (!useRaw) {
+      res.on('finish', () => ids.forEach((id) => this.prescriptionsService.markAsSent(id)));
+    }
+    res.json(output);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @Res() res: Response) {
-    const p = this.prescriptionsService.findOne(id);
+  async findOne(@Param('id') id: string, @Res() res: Response) {
+    const p = await this.prescriptionsService.findOne(id);
     if (!p) {
       res.status(HttpStatus.NOT_FOUND).json({ error: `Prescrizione ${id} non trovata` });
       return;

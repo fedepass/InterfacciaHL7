@@ -37,8 +37,7 @@ async function loadCappe() {
     return;
   }
   container.innerHTML = cappe.map(c => {
-    const queueData = c.queue ?? [];
-    const pending = queueData.filter(i => i.status !== 'COMPLETED').length;
+    const pending = c.queueLength ?? (c.queue ?? []).filter(i => i.status !== 'COMPLETED').length;
     const status = c.status ?? 'ONLINE';
     const maxQ = c.maxQueueSize ?? 0;
     const queueLabel = maxQ > 0
@@ -60,7 +59,7 @@ async function loadCappe() {
 }
 
 async function loadHistory() {
-  const data = await apiFetch('/api/prescriptions');
+  const data = await apiFetch('/api/prescriptions?raw=true');
   const tbody = document.getElementById('history-body');
   if (!tbody) return;
   if (!data || data.length === 0) {
@@ -581,9 +580,15 @@ async function sendTest() {
       headers: { 'Content-Type': ctMap[fmt] },
       body: payload,
     });
-    const data = await res.json();
-    resultEl.textContent = JSON.stringify(data, null, 2);
-    if (res.ok) { loadCappe(); loadHistory(); }
+    const text = await res.text();
+    if (res.ok) {
+      resultEl.textContent = `Prescrizione inviata (HTTP ${res.status})`;
+      loadCappe();
+      loadHistory();
+    } else {
+      const data = text ? JSON.parse(text) : {};
+      resultEl.textContent = `Errore ${res.status}: ${data.error ?? text}`;
+    }
   } catch (e) {
     resultEl.textContent = 'Errore: ' + e.message;
   }
@@ -601,7 +606,7 @@ async function loadCappeList() {
   }
   container.innerHTML = cappe.map(c => {
     const status = c.status ?? 'ONLINE';
-    const pending = (c.queue ?? []).filter(i => i.status !== 'COMPLETED').length;
+    const pending = c.queueLength ?? (c.queue ?? []).filter(i => i.status !== 'COMPLETED').length;
     const maxQ = c.maxQueueSize ?? 0;
     const queueText = maxQ > 0 ? `${pending}/${maxQ}` : `${pending}`;
     const typeName = CAPPA_TYPES[c.type] ?? c.type ?? '—';

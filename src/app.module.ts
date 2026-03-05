@@ -3,6 +3,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import * as path from 'path';
 import { json, text } from 'express';
 
+import { DatabaseModule } from './database/database.module';
 import { ConfigModule } from './config/config.module';
 import { CappeModule } from './cappe/cappe.module';
 import { ParsersModule } from './parsers/parsers.module';
@@ -16,6 +17,7 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
       serveRoot: '/',
       exclude: ['/api/(.*)'],
     }),
+    DatabaseModule,
     ConfigModule,
     CappeModule,
     ParsersModule,
@@ -25,7 +27,6 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    // Parsing body flessibile: JSON, testo plain (HL7 v2), XML
     consumer
       .apply(
         json({ type: ['application/json', 'application/fhir+json'] }),

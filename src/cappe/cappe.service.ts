@@ -1,6 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Not } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfigService, CappaType, CappaStatus } from '../config/config.service';
+import { CappaQueueEntity } from '../database/entities/cappa-queue.entity';
 
 export interface Cappa {
   id: string;
@@ -42,28 +45,55 @@ export interface UpdateCappaDto {
 }
 
 @Injectable()
-export class CappeService {
-  // Queue in-memory: persistenza della coda (non salvata su disco)
-  private readonly queues = new Map<string, CappaQueueItem[]>();
+export class CappeService implements OnModuleInit {
+  // Cache in-memory per lunghezze coda (usata dal RoutingEngine in modo sincrono)
+  private readonly queueLengthCache = new Map<string, number>();
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @InjectRepository(CappaQueueEntity)
+    private readonly queueRepo: Repository<CappaQueueEntity>,
+  ) {}
 
-  findAll(): Cappa[] {
-    return this.configService.getCappe().map(c => ({
+  async onModuleInit() {
+    try {
+      await this.loadQueueCacheFromDb();
+    } catch (e) {
+      console.error('Impossibile caricare code dal DB:', e.message);
+    }
+  }
+
+  private async loadQueueCacheFromDb() {
+    const cappe = this.configService.getCappe();
+    for (const c of cappe) {
+      const count = await this.queueRepo.count({
+        where: { cappaId: c.id, status: Not('COMPLETED') as any },
+      });
+      this.queueLengthCache.set(c.id, count);
+    }
+  }
+
+  // ── Lettura cappe ────────────────────────────────────────────
+
+  findAll(): (Cappa & { queueLength: number })[] {
+    return this.configService.getCappe().map((c) => ({
       ...c,
-      queue: this.queues.get(c.id) ?? [],
+      queue: [],
+      queueLength: this.queueLengthCache.get(c.id) ?? 0,
     }));
   }
 
-  findOne(id: string): Cappa {
-    const cappa = this.configService.getCappe().find(c => c.id === id);
+  findOne(id: string): Cappa & { queueLength: number } {
+    const cappa = this.configService.getCappe().find((c) => c.id === id);
     if (!cappa) throw new NotFoundException(`Cappa ${id} non trovata`);
-    return { ...cappa, queue: this.queues.get(id) ?? [] };
+    return { ...cappa, queue: [], queueLength: this.queueLengthCache.get(id) ?? 0 };
   }
+
+  // ── CRUD cappe ───────────────────────────────────────────────
 
   create(dto: CreateCappaDto): Cappa {
     const cappe = this.configService.getCappe();
-    if (cappe.find(c => c.name === dto.name)) {
+    if (cappe.find((c) => c.name === dto.name)) {
       throw new ConflictException(`Cappa con nome "${dto.name}" esiste già`);
     }
     const newCappa = {
@@ -77,65 +107,105 @@ export class CappeService {
       specializations: dto.specializations ?? [],
     };
     this.configService.addCappa(newCappa);
-    this.queues.set(newCappa.id, []);
+    this.queueLengthCache.set(newCappa.id, 0);
     return { ...newCappa, queue: [] };
   }
 
   update(id: string, dto: UpdateCappaDto): Cappa {
-    const cappa = this.configService.getCappe().find(c => c.id === id);
+    const cappa = this.configService.getCappe().find((c) => c.id === id);
     if (!cappa) throw new NotFoundException(`Cappa ${id} non trovata`);
     const updated = { ...cappa, ...dto };
     this.configService.updateCappa(id, updated);
-    return { ...updated, queue: this.queues.get(id) ?? [] };
+    return { ...updated, queue: [] };
   }
 
   remove(id: string): void {
-    const cappa = this.configService.getCappe().find(c => c.id === id);
+    const cappa = this.configService.getCappe().find((c) => c.id === id);
     if (!cappa) throw new NotFoundException(`Cappa ${id} non trovata`);
     this.configService.removeCappa(id);
-    this.queues.delete(id);
+    this.queueLengthCache.delete(id);
+    this.queueRepo
+      .delete({ cappaId: id })
+      .catch((e) => console.error('DB error remove queue:', e.message));
   }
 
-  getQueue(id: string): CappaQueueItem[] {
-    if (!this.configService.getCappe().find(c => c.id === id)) {
+  // ── Gestione coda ────────────────────────────────────────────
+
+  async getQueue(id: string): Promise<CappaQueueItem[]> {
+    if (!this.configService.getCappe().find((c) => c.id === id)) {
       throw new NotFoundException(`Cappa ${id} non trovata`);
     }
-    return this.queues.get(id) ?? [];
+    const entities = await this.queueRepo.find({
+      where: { cappaId: id },
+      order: { assignedAt: 'ASC' },
+    });
+    return entities.map((e) => this.entityToQueueItem(e));
   }
 
   addToQueue(cappaId: string, item: Omit<CappaQueueItem, 'assignedAt' | 'status'>): CappaQueueItem {
-    const cappa = this.configService.getCappe().find(c => c.id === cappaId);
+    const cappa = this.configService.getCappe().find((c) => c.id === cappaId);
     const maxQ = cappa?.maxQueueSize ?? 0;
     if (maxQ > 0 && this.getQueueLength(cappaId) >= maxQ) {
       throw new BadRequestException(
         `Cappa ${cappaId} ha raggiunto la capacità massima di ${maxQ} preparazioni`,
       );
     }
+
     const entry: CappaQueueItem = { ...item, assignedAt: new Date(), status: 'PENDING' };
-    if (!this.queues.has(cappaId)) this.queues.set(cappaId, []);
-    this.queues.get(cappaId)!.push(entry);
+
+    // Aggiorna cache sincrona
+    this.queueLengthCache.set(cappaId, (this.queueLengthCache.get(cappaId) ?? 0) + 1);
+
+    // Persiste sul DB
+    this.queueRepo
+      .save({
+        cappaId,
+        prescriptionId: item.prescriptionId,
+        patientName: item.patientName,
+        drugName: item.drugName,
+        priority: item.priority,
+        assignedAt: entry.assignedAt,
+        status: 'PENDING',
+      })
+      .catch((e) => console.error('DB error addToQueue:', e.message));
+
     return entry;
   }
 
+  // Sincrono: legge dalla cache (usato da RoutingEngine)
   getQueueLength(cappaId: string): number {
-    return (this.queues.get(cappaId) ?? []).filter(i => i.status !== 'COMPLETED').length;
+    return this.queueLengthCache.get(cappaId) ?? 0;
   }
 
   updateQueueItemStatus(cappaId: string, prescriptionId: string, status: 'IN_PROGRESS' | 'COMPLETED'): void {
-    const queue = this.queues.get(cappaId) ?? [];
-    const item = queue.find(i => i.prescriptionId === prescriptionId);
-    if (item) item.status = status;
+    if (status === 'COMPLETED') {
+      const current = this.queueLengthCache.get(cappaId) ?? 0;
+      this.queueLengthCache.set(cappaId, Math.max(0, current - 1));
+    }
+    this.queueRepo
+      .update({ cappaId, prescriptionId }, { status })
+      .catch((e) => console.error('DB error updateQueueItemStatus:', e.message));
   }
 
-  // Restituisce cappe eleggibili per il routing:
-  // active=true AND status=ONLINE AND coda non piena (se maxQueueSize > 0)
+  // Restituisce cappe eleggibili per il routing (sincrono, per RoutingEngine)
   getActiveCappe() {
-    return this.configService.getCappe().filter(c => {
+    return this.configService.getCappe().filter((c) => {
       if (!c.active) return false;
       if ((c.status ?? 'ONLINE') !== 'ONLINE') return false;
       const maxQ = c.maxQueueSize ?? 0;
       if (maxQ > 0 && this.getQueueLength(c.id) >= maxQ) return false;
       return true;
     });
+  }
+
+  private entityToQueueItem(e: CappaQueueEntity): CappaQueueItem {
+    return {
+      prescriptionId: e.prescriptionId,
+      patientName: e.patientName,
+      drugName: e.drugName,
+      priority: e.priority,
+      assignedAt: e.assignedAt,
+      status: e.status as 'PENDING' | 'IN_PROGRESS' | 'COMPLETED',
+    };
   }
 }
