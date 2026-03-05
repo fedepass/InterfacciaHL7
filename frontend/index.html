@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmacia HL7 - Dashboard</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">Farmacia HL7</div>
+    <div class="nav-links">
+      <a href="/" class="active">Dashboard</a>
+      <a href="/cappe.html">Cappe</a>
+      <a href="/filtri.html">Filtri</a>
+      <a href="/config.html">Configurazione</a>
+      <a href="/output.html">Campi Output</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Dashboard</h1>
+
+    <section class="cards" id="cappe-cards">
+      <div class="loading">Caricamento cappe...</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Ultime Prescrizioni</h2>
+        <button onclick="loadHistory()">Aggiorna</button>
+      </div>
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Priorità</th><th>Paziente</th><th>Reparto</th>
+            <th>Farmaco</th><th>Dosaggio</th><th>Contenitore Finale</th>
+            <th>Cappa Assegnata</th><th>Ricevuta</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="9" class="empty">Nessuna prescrizione ricevuta</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Test Invio Prescrizione</h2>
+      </div>
+      <div class="test-area">
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <select id="test-format" onchange="loadSample()">
+            <option value="hl7v2">HL7 v2</option>
+            <option value="fhir_json">FHIR JSON</option>
+            <option value="fhir_xml">FHIR XML</option>
+            <option value="cda_prf">CDA-PrF (HL7 Italia)</option>
+          </select>
+          <button onclick="generateRandomTest()">Genera Casuale</button>
+        </div>
+        <textarea id="test-payload" rows="12" placeholder="Inserisci il payload..."></textarea>
+        <button onclick="sendTest()" class="btn-primary">Invia Prescrizione</button>
+        <pre id="test-result" class="result-box"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    loadCappe();
+    loadHistory();
+    loadSample();
+    setInterval(() => { loadCappe(); loadHistory(); }, 10000);
+  </script>
+</body>
+</html>

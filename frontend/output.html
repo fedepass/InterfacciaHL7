@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmacia HL7 - Campi Output</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">Farmacia HL7</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/cappe.html">Cappe</a>
+      <a href="/filtri.html">Filtri</a>
+      <a href="/config.html">Configurazione</a>
+      <a href="/output.html" class="active">Campi Output</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Configurazione Campi Output JSON</h1>
+    <p class="subtitle">
+      Seleziona i campi da includere nel JSON restituito da <code>POST /api/prescriptions</code>.
+      I campi deselezionati vengono omessi dalla risposta verso i sistemi terzi.
+      La dashboard interna utilizza sempre tutti i dati.
+    </p>
+
+    <div class="output-layout">
+
+      <!-- Pannello selezione campi -->
+      <div>
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Selezione Campi</h2>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+              <span id="field-counter" style="font-size:.8rem;color:#718096;align-self:center"></span>
+              <button onclick="selectAll()">Seleziona tutti</button>
+              <button onclick="selectNone()">Nessuno</button>
+              <button onclick="saveOutputFields()" class="btn-primary">Salva configurazione</button>
+            </div>
+          </div>
+
+          <div id="field-groups">
+            <div class="loading">Caricamento...</div>
+          </div>
+
+          <p id="output-msg" class="msg" style="margin-top:.75rem"></p>
+        </div>
+      </div>
+
+      <!-- Pannello anteprima JSON -->
+      <div class="preview-panel">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Anteprima JSON</h2>
+            <span style="font-size:.72rem;color:#a0aec0">Aggiornamento in tempo reale</span>
+          </div>
+          <p style="font-size:.75rem;color:#718096;margin-bottom:.5rem">
+            Esempio con dati fittizi — mostra la struttura effettiva dell'output.
+          </p>
+          <pre id="output-preview" class="result-box" style="max-height:72vh;overflow:auto;font-size:.7rem;line-height:1.45"></pre>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>loadOutputPage();</script>
+</body>
+</html>

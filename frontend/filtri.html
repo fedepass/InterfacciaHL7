@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmacia HL7 - Filtri</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">Farmacia HL7</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/cappe.html">Cappe</a>
+      <a href="/filtri.html" class="active">Filtri</a>
+      <a href="/config.html">Configurazione</a>
+      <a href="/output.html">Campi Output</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Gestione Filtri di Routing</h1>
+    <p class="subtitle">I filtri vengono valutati in ordine di priorità (1 = massima). Se nessun filtro corrisponde, si usa la strategia default.</p>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Nuovo Filtro</h2>
+      </div>
+      <div class="filter-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nome filtro</label>
+            <input type="text" id="f-name" placeholder="Es. Chemioterapici su Cappa 1">
+          </div>
+          <div class="form-group">
+            <label>Priorità (1 = massima)</label>
+            <input type="number" id="f-priority" value="10" min="1">
+          </div>
+        </div>
+
+        <h4>Condizioni (AND logico - tutte devono corrispondere)</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categorie farmaco (separate da virgola, vuoto = qualsiasi)</label>
+            <input type="text" id="f-categories" placeholder="Es. CHEMOTHERAPY,IMMUNOSUPPRESSANT">
+          </div>
+          <div class="form-group">
+            <label>Urgenza (vuoto = qualsiasi)</label>
+            <select id="f-urgency">
+              <option value="">Qualsiasi</option>
+              <option value="STAT">STAT</option>
+              <option value="URGENT">URGENT</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Reparto (vuoto = qualsiasi)</label>
+            <input type="text" id="f-ward" placeholder="Es. ONCOLOGIA">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cappa target (vuoto = usa strategia default)</label>
+            <select id="f-cappa">
+              <option value="">-- Usa strategia default --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Se cappa non disponibile</label>
+            <select id="f-fallback">
+              <option value="true">Usa strategia default</option>
+              <option value="false">Salta filtro</option>
+            </select>
+          </div>
+        </div>
+
+        <button onclick="createFilter()" class="btn-primary">Aggiungi Filtro</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Filtri Attivi</h2>
+        <button onclick="loadFilters()">Aggiorna</button>
+      </div>
+      <div id="filters-list">
+        <div class="loading">Caricamento...</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>loadFilters(); loadCappeOptions();</script>
+</body>
+</html>

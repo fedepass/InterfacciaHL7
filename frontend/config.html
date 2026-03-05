@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmacia HL7 - Configurazione</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">Farmacia HL7</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/cappe.html">Cappe</a>
+      <a href="/filtri.html">Filtri</a>
+      <a href="/config.html" class="active">Configurazione</a>
+      <a href="/output.html">Campi Output</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Configurazione Sistema</h1>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Strategia di Routing Default</h2>
+      </div>
+      <p>La strategia default viene usata quando nessun filtro specifico corrisponde alla prescrizione, o come fallback.</p>
+      <div class="strategy-cards" id="strategy-cards">
+        <div class="strategy-card" data-strategy="load_balance">
+          <div class="strategy-icon">⚖️</div>
+          <div class="strategy-name">Load Balance</div>
+          <div class="strategy-desc">Assegna alla cappa con meno lavoro in coda</div>
+        </div>
+        <div class="strategy-card" data-strategy="drug_type">
+          <div class="strategy-icon">💊</div>
+          <div class="strategy-name">Tipo Farmaco</div>
+          <div class="strategy-desc">Assegna alla cappa specializzata per la categoria del farmaco</div>
+        </div>
+        <div class="strategy-card" data-strategy="urgency_first">
+          <div class="strategy-icon">🚨</div>
+          <div class="strategy-name">Urgenza</div>
+          <div class="strategy-desc">STAT e URGENT vanno alla cappa più libera</div>
+        </div>
+        <div class="strategy-card" data-strategy="ward">
+          <div class="strategy-icon">🏥</div>
+          <div class="strategy-name">Reparto</div>
+          <div class="strategy-desc">Assegna alla cappa associata al reparto del paziente</div>
+        </div>
+      </div>
+      <button onclick="saveStrategy()" class="btn-primary" style="margin-top:1rem">Salva Strategia</button>
+      <p id="strategy-msg" class="msg"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Configurazione Completa (JSON)</h2>
+      </div>
+      <pre id="config-raw" class="result-box" style="max-height:400px;overflow:auto">Caricamento...</pre>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>loadConfigPage();</script>
+</body>
+</html>

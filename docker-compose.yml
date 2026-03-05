@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  servizio-hl7:
+    build: .
+    container_name: servizio-hl7
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - hl7-net
+
+networks:
+  hl7-net:
+    driver: bridge

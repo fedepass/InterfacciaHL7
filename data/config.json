@@ -1,0 +1,71 @@
+{
+  "defaultRoutingStrategy": "load_balance",
+  "filters": [],
+  "cappe": [
+    {
+      "id": "CAPPA_6741F914",
+      "name": "Cappa 1",
+      "active": true,
+      "specializations": [
+        "CHEMIOTERAPICI"
+      ],
+      "type": "ISOLATORE",
+      "description": "Isolatore",
+      "status": "ONLINE",
+      "maxQueueSize": 8
+    },
+    {
+      "id": "CAPPA_FC8B138F",
+      "name": "Cappa Test",
+      "active": true,
+      "specializations": [
+        "CHEMOTHERAPY"
+      ]
+    },
+    {
+      "id": "CAPPA_5AA97271",
+      "name": "Cappa Antibiotici",
+      "active": true,
+      "specializations": [
+        "ANTIBIOTIC",
+        "NUTRITION"
+      ]
+    },
+    {
+      "id": "CAPPA_FDBCDF69",
+      "name": "Isolatore Oncologia",
+      "description": "Isolatore per citotossici ad alto rischio",
+      "type": "ISOLATORE",
+      "active": true,
+      "status": "ONLINE",
+      "maxQueueSize": 5,
+      "specializations": [
+        "CHEMOTHERAPY"
+      ]
+    }
+  ],
+  "outputFields": [
+    "prescriptionId",
+    "status",
+    "priority",
+    "deliveryStatus",
+    "assignedCappa.id",
+    "assignedCappa.name",
+    "patient.id",
+    "patient.ward",
+    "preparation.drug",
+    "preparation.category",
+    "preparation.code",
+    "preparation.dosage",
+    "preparation.dosageValue",
+    "preparation.dosageUnit",
+    "preparation.solvent",
+    "preparation.volume",
+    "preparation.volumeValue",
+    "preparation.volumeUnit",
+    "timestamps.received",
+    "timestamps.dispatched",
+    "timestamps.requiredBy",
+    "timestamps.sentToApi"
+  ]
+}
