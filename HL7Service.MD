@@ -1,8 +1,8 @@
 # Product Requirements Document
 # Servizio HL7 - Dispatcher Preparazioni IV in Farmacia Ospedaliera
 
-**Versione**: 1.8
-**Data**: 2026-03-05
+**Versione**: 2.0
+**Data**: 2026-03-07
 **Stato**: Implementato
 
 ---
@@ -18,29 +18,30 @@
 | 1.4 | 2026-03-04 | Nuova pagina Web UI `/output.html` per configurazione campi output JSON. Endpoint `GET/PUT /api/config/output-fields`. Nuovi campi root in DispatchResult: `sourceFormat`, `prescribedBy`, `notes`. Il filtro output è applicato solo a `POST /api/prescriptions` (la dashboard interna usa sempre tutti i dati) |
 | 1.5 | 2026-03-04 | Informazioni complete della cappa in `assignedCappa` dell'output: aggiunto `description`, `type`, `status`, `specializations`, `queueLength`, `maxQueueSize` |
 | 1.6 | 2026-03-04 | Tracciamento consegna API: campo `deliveryStatus` (PENDING → SENT) e `timestamps.sentToApi` su ogni prescrizione. Filtro `GET /api/prescriptions?status=SENT\|PENDING`. Aggiornata pagina Campi Output con i due nuovi campi |
-| 1.7 | 2026-03-04 | `POST /api/prescriptions` restituisce solo `HTTP 201` senza body (ricezione pura da sistemi sorgente). Filtro campi output rimosso dal POST e applicato esclusivamente ai GET. Aggiunto query param `cappaId` per filtrare per cappa. Transizione `deliveryStatus` PENDING→SENT avviene dopo l'invio della risposta HTTP (via `res.on('finish')`) — il client riceve sempre lo stato reale al momento della lettura |
-| 1.8 | 2026-03-05 | Persistenza completa su MySQL 8 via TypeORM (sostituisce `data/config.json` e le strutture in-memory). Aggiunto container `hl7_mysql` nel Docker Compose. Nuovo schema database strutturato in 5 sezioni: anagrafiche (`ana_*`), entità, associazioni, configurazione, operativa. Tutte le tabelle hanno `id` INT AUTO_INCREMENT come chiave primaria; le chiavi naturali (`code`, `field_path`) promosse a UNIQUE. Aggiunto file `.env` per configurazione connessione DB in sviluppo locale. |
+| 1.7 | 2026-03-04 | `POST /api/prescriptions` restituisce solo `HTTP 201` senza body (ricezione pura da sistemi sorgente). Filtro campi output rimosso dal POST e applicato esclusivamente ai GET. Aggiunto query param `cappaId` per filtrare per cappa. Transizione `deliveryStatus` PENDING→SENT avviene dopo l'invio della risposta HTTP (via `res.on('finish')`) |
+| 1.8 | 2026-03-05 | Persistenza completa su MySQL 8 via TypeORM (sostituisce `data/config.json` e le strutture in-memory). Aggiunto container `hl7_mysql` nel Docker Compose. Nuovo schema database strutturato in 5 sezioni. Tutte le tabelle hanno `id` INT AUTO_INCREMENT come chiave primaria; le chiavi naturali (`code`, `field_path`) promosse a UNIQUE. Aggiunto file `.env` per configurazione connessione DB in sviluppo locale. |
+| 1.9 | 2026-03-05 | Ordinamento coda configurabile per cappa: nuovo attributo `queueSortOrder` (PRIORITY \| ARRIVAL_ASC \| ARRIVAL_DESC \| WARD). Nuova colonna `patient_ward` in `cappa_queue` per supporto sort per reparto. Dashboard: tabella prescrizioni mostra solo PENDING con paginazione a blocchi da 10 ("Carica altre"). UI cappe: select ordinamento nel form creazione e nel modal modifica. |
+| 2.0 | 2026-03-07 | Rimozione del sistema cappe e del routing engine. Il servizio diventa un dispatcher puro: riceve, parsifica, normalizza e restituisce il JSON strutturato senza smistamento su postazioni fisiche. Rimossi: tabelle `cappe`, `cappa_specializations`, `cappa_queue`, `ana_cappa_*`; colonne `assigned_cappa_id`, `assigned_cappa`, `routing_info` da `prescriptions`; colonne `target_cappa_id`, `fallback_to_default` da `routing_filters`; colonna `default_routing_strategy` da `app_config`. Rimossa pagina Web UI `config.html`. `POST /api/prescriptions` ora restituisce `HTTP 201` con body JSON completo dei campi decodificati (filtro output applicato). Dashboard mostra solo prescrizioni `PENDING` non ancora consegnate via API. La pagina Drug Categories sostituisce Cappe nella navigazione. |
 
 ---
 
 ## 1. Obiettivo del Prodotto
 
-Sviluppare un servizio software on-premise che funga da intermediario tra i sistemi informativi ospedalieri (cartelle cliniche, sistemi di prescrizione) e le postazioni di preparazione farmaci (cappe) in farmacia ospedaliera.
+Sviluppare un servizio software on-premise che funga da intermediario tra i sistemi informativi ospedalieri (cartelle cliniche, sistemi di prescrizione) e i software delle postazioni di preparazione farmaci in farmacia ospedaliera.
 
-Il servizio riceve prescrizioni di farmaci in formato standard sanitario, le normalizza, le filtra in base a regole configurabili e le instrada verso la cappa di preparazione più adeguata, restituendo un output JSON strutturato pronto per il consumo via API.
+Il servizio riceve prescrizioni di farmaci in formato standard sanitario (HL7 v2, FHIR R4, CDA-PrF), le normalizza in una struttura unificata, le categorizza automaticamente e le espone via API REST in formato JSON strutturato, pronto per il consumo da parte di sistemi terzi.
 
 ---
 
 ## 2. Contesto e Problema
 
-Le farmacie ospedaliere ricevono prescrizioni da reparti diversi attraverso sistemi informativi eterogenei che parlano protocolli differenti (HL7 v2, FHIR). Le prescrizioni di farmaci per via endovenosa (preparazioni IV) richiedono una lavorazione manuale da parte di farmacisti specializzati in postazioni dedicate (cappe a flusso laminare).
+Le farmacie ospedaliere ricevono prescrizioni da reparti diversi attraverso sistemi informativi eterogenei che parlano protocolli differenti (HL7 v2, FHIR). Le prescrizioni di farmaci per via endovenosa (preparazioni IV) richiedono una lavorazione manuale da parte di farmacisti specializzati.
 
-**Problemi attuali:**
+**Problemi risolti:**
 - Sistemi sorgente parlano protocolli diversi e non compatibili tra loro
-- Nessuna logica automatica di smistamento tra le cappe
 - Difficoltà nel gestire le priorità (urgenze STAT vs routine)
-- Farmaci specifici (es. chemioterapici) richiedono cappe dedicate per sicurezza
-- Assenza di visibilità in tempo reale sul carico di lavoro per cappa
+- Assenza di un formato dati unificato leggibile dai software di postazione
+- Nessuna visibilità sulle prescrizioni in attesa di lavorazione
 
 ---
 
@@ -48,9 +49,9 @@ Le farmacie ospedaliere ricevono prescrizioni da reparti diversi attraverso sist
 
 | Ruolo | Utilizzo |
 |-------|----------|
-| Farmacista responsabile | Configura filtri, cappe e strategie di routing |
-| Farmacista preparatore | Riceve le prescrizioni sulla propria postazione (cappa) |
-| Tecnico informatico | Integra il servizio con i sistemi ospedalieri via API |
+| Farmacista responsabile | Configura i filtri e i campi output via Web UI |
+| Farmacista preparatore | Il software di postazione legge le prescrizioni via API GET |
+| Tecnico informatico | Integra il servizio con i sistemi ospedalieri via API POST |
 | Amministratore di sistema | Deploy, monitoraggio, configurazione infrastruttura |
 
 ---
@@ -246,10 +247,7 @@ Esempio: 75 mg / 250 ml = 0.3 mg/ml
 
 ### 4.3 Categorizzazione Automatica Farmaci
 
-Il sistema classifica i farmaci in due modi, con precedenza al codice ATC:
-
-1. **Per nome** (regex su nome farmaco): tabella di pattern matching
-2. **Fallback**: categoria `OTHER`
+Il sistema classifica i farmaci per nome mediante pattern regex:
 
 | Categoria | Esempi farmaci |
 |-----------|----------------|
@@ -262,129 +260,69 @@ Il sistema classifica i farmaci in due modi, con precedenza al codice ATC:
 | `INSULIN` | Insulina |
 | `OTHER` | Tutti gli altri |
 
-**Normalizzazione alias categorie (per routing):**
+Le categorie e i loro alias (italiano/inglese) sono gestiti tramite la pagina **Categorie Farmaco** della Web UI e persistiti nel database (tabelle `drug_categories`, `drug_category_aliases`, `drug_category_atc`).
 
-Le specializzazioni delle cappe e le condizioni dei filtri possono essere scritte in italiano o in inglese. Il routing engine normalizza automaticamente:
+### 4.4 Filtri di Configurazione
 
-| Alias (italiano/sinonimo) | Categoria standard |
-|---------------------------|--------------------|
-| CHEMIOTERAPICI, CHEMIOTERAPICO, CHEMIO, ONCOLOGICI, ANTITUMORALI, CITOTOSSICI | CHEMOTHERAPY |
-| IMMUNOSOPPRESSORI, IMMUNOSOPPRESSORE | IMMUNOSUPPRESSANT |
-| ANTIBIOTICI, ANTIBIOTICO | ANTIBIOTIC |
-| ANTICOAGULANTI, ANTICOAGULANTE | ANTICOAGULANT |
-| NUTRIZIONE, NUTRIZIONE_PARENTERALE, NPT | NUTRITION |
-| OPPIOIDI, OPPIOIDE, ANALGESICI, ANALGESICO | ANALGESIC_OPIOID |
-| INSULINE, INSULINA | INSULIN |
-
-### 4.4 Gestione Cappe
-
-Le cappe sono le postazioni fisiche di preparazione farmaci in farmacia. Il sistema supporta:
-
-- **Numero**: da 1 a N cappe configurabili dinamicamente
-- **Attributi per cappa**:
-  - `id`: identificativo univoco generato automaticamente (`CAPPA_XXXXXXXX`)
-  - `name`: nome descrittivo (es. "Cappa Chemioterapici")
-  - `description`: descrizione libera opzionale (es. note tecniche)
-  - `type` (`CappaType`): tipologia della postazione
-  - `active`: flag amministrativo — se `false` la cappa è esclusa dal routing e dalla UI
-  - `status` (`CappaStatus`): stato operativo in tempo reale
-  - `maxQueueSize`: numero massimo di preparazioni accettabili in coda; `0` = illimitata
-  - `specializations`: lista di categorie farmaco associate (usano alias normalizzati)
-  - `queue`: coda di lavoro in-memory con stati PENDING, IN_PROGRESS, COMPLETED
-- **Operazioni**: creazione, modifica, attivazione/disattivazione, eliminazione
-- **Coda**: ogni cappa mantiene una coda di preparazioni assegnate con stato
-- **Contatori**: `GET /api/cappe` include la coda di ogni cappa per consentire il calcolo dei contatori in tempo reale nella dashboard
-
-**Enum CappaType — tipologie supportate:**
-
-| Valore | Descrizione |
-|--------|-------------|
-| `FLUSSO_LAMINARE_VERTICALE` | Cappa a flusso laminare verticale |
-| `FLUSSO_LAMINARE_ORIZZONTALE` | Cappa a flusso laminare orizzontale |
-| `ISOLATORE` | Isolatore farmaceutico |
-| `BSC` | Cappa biologica (Biological Safety Cabinet) |
-| `CHIMICA` | Cappa chimica |
-| `DISPENSAZIONE` | Postazione di dispensazione |
-| `ALTRO` | Altro (default) |
-
-**Enum CappaStatus — stati operativi:**
-
-| Valore | Descrizione |
-|--------|-------------|
-| `ONLINE` | Operativa e disponibile (default) |
-| `OFFLINE` | Temporaneamente non disponibile |
-| `MANUTENZIONE` | In manutenzione programmata |
-| `GUASTO` | Fuori servizio |
-
-**Eligibilità al routing:**
-Una cappa riceve prescrizioni solo se tutte le seguenti condizioni sono soddisfatte:
-1. `active = true` (flag amministrativo)
-2. `status = ONLINE`
-3. `maxQueueSize = 0` (illimitata) oppure `lunghezza_coda_attuale < maxQueueSize`
-
-Se una cappa con coda piena viene specificata come target di un filtro, viene applicato il fallback alla strategia default (se `fallbackToDefault = true`).
-
-### 4.5 Logica di Routing (Dispatcher)
-
-Il dispatcher applica una logica a cascata per determinare la cappa destinataria:
-
-#### Step 1 — Filtri specifici (valutati in ordine di priorità)
-Ogni filtro ha:
+I filtri sono regole memorizzate sul database che possono essere usate per classificare o pre-elaborare le prescrizioni in ingresso. Ogni filtro ha:
 - `priority`: numero intero (1 = massima priorità)
 - `enabled`: abilitato/disabilitato
 - `conditions`: criteri di corrispondenza (AND logico)
   - `drugCategories`: lista categorie farmaco (null = qualsiasi)
   - `ward`: reparto richiedente, match parziale case-insensitive (null = qualsiasi)
   - `urgency`: STAT o URGENT (null = qualsiasi)
-- `targetCappaId`: cappa destinataria (null = usa strategia default)
-- `fallbackToDefault`: se la cappa target non è attiva, usa la strategia default
 
-**Logica di valutazione filtri:**
+I filtri sono gestibili tramite la pagina **Filtri** della Web UI e gli endpoint `/api/config/filters`.
+
+### 4.5 Dispatcher
+
+Il `DispatcherService` riceve la `NormalizedPrescription` e assembla il `DispatchResult` — la struttura JSON finale che viene persistita su DB e restituita via API. Non esegue smistamento su postazioni fisiche.
+
+**Struttura DispatchResult:**
 ```
-Per ogni filtro (ordinato per priority ASC):
-  Se tutte le condizioni non-null corrispondono (AND):
-    Se targetCappaId è valorizzato:
-      Se la cappa è eleggibile (active=true, status=ONLINE, coda non piena) → DISPATCH sulla cappa
-      Se la cappa non è eleggibile e fallbackToDefault=true → vai a Step 2
-      Se la cappa non è eleggibile e fallbackToDefault=false → prova filtro successivo
-    Se targetCappaId è null → vai a Step 2 con il filtro corrente applicato
-Se nessun filtro corrisponde → Step 2
+DispatchResult {
+  prescriptionId: UUID
+  status: 'DISPATCHED'
+  deliveryStatus: 'PENDING' | 'SENT'
+  priority: string
+  sourceFormat: string
+  prescribedBy?: string
+  notes?: string
+  patient: { id, name, ward, bedNumber? }
+  preparation: {
+    drug, category, code?, dosage, dosageValue?, dosageUnit?,
+    route, solvent?, volume?, volumeValue?, volumeUnit?,
+    infusionRate?, finalConcentration?, frequency
+  }
+  timestamps: { received, dispatched, sentToApi?, requiredBy? }
+}
 ```
-
-#### Step 2 — Strategia di routing default
-
-Quattro strategie configurabili (default: `drug_type`):
-
-| Strategia | Comportamento |
-|-----------|---------------|
-| `load_balance` | Assegna alla cappa attiva con il minor numero di preparazioni in coda non completate |
-| `drug_type` | Trova le cappe con specializzazione corrispondente alla categoria farmaco (normalizzata); tra le cappe trovate applica load_balance; se nessuna corrisponde → load_balance su tutte |
-| `urgency_first` | Per priorità STAT o URGENT: applica drug_type; altrimenti load_balance |
-| `ward` | Assegna alla cappa con specializzazione che include il nome reparto; fallback a load_balance |
 
 ### 4.6 Output
 
 #### 4.6.1 Risposta POST /api/prescriptions
 
-Il `POST` è utilizzato dai sistemi sorgente (HIS, EHR, cartelle cliniche) per inviare prescrizioni al servizio. La risposta non contiene body — il sistema sorgente riceve solo il codice HTTP:
+Il `POST` è utilizzato dai sistemi sorgente (HIS, EHR, cartelle cliniche) per inviare prescrizioni al servizio. La risposta contiene il `DispatchResult` con il filtro output applicato:
 
-| Scenario | HTTP |
-|----------|------|
-| Prescrizione ricevuta e assegnata a cappa | `201 Created` |
-| Body mancante o non leggibile | `400 Bad Request` + `{"error": "..."}` |
-| Formato non riconosciuto | `400 Bad Request` + `{"error": "..."}` |
-| Nessuna cappa disponibile | `400 Bad Request` + `{"error": "..."}` |
-| Errore interno | `500 Internal Server Error` + `{"error": "..."}` |
+| Scenario | HTTP | Body |
+|----------|------|------|
+| Prescrizione ricevuta e salvata | `201 Created` | JSON con campi decodificati (filtro output applicato) |
+| Body mancante o non leggibile | `400 Bad Request` | `{"error": "..."}` |
+| Formato non riconosciuto | `400 Bad Request` | `{"error": "..."}` |
+| Errore interno | `500 Internal Server Error` | `{"error": "..."}` |
+
+La prescrizione è creata con `deliveryStatus: PENDING` e rimane tale fino alla prima lettura via `GET` (senza `raw=true`).
 
 #### 4.6.2 Risposta GET /api/prescriptions
 
-I `GET` sono utilizzati dai software delle postazioni cappa (sistemi terzi) per leggere le preparazioni assegnate. La risposta è un array JSON con i soli campi configurati nella pagina **Campi Output** (vedere §4.7). Il filtro NON è applicato al POST.
+I `GET` sono utilizzati dai software delle postazioni per leggere le preparazioni in attesa. La risposta è un array JSON con i soli campi configurati nella pagina **Campi Output**.
 
 **Comportamento `deliveryStatus`:**
 - Al momento del `POST`: la prescrizione entra in stato `PENDING`
-- Quando un `GET` viene chiamato: la risposta riporta `deliveryStatus: PENDING` (stato reale al momento della lettura); solo dopo l'invio della risposta HTTP il campo viene aggiornato a `SENT` e `timestamps.sentToApi` viene valorizzato
+- Quando un `GET` senza `raw=true` viene chiamato: la risposta riporta `deliveryStatus: PENDING`; solo dopo l'invio della risposta HTTP il campo viene aggiornato a `SENT` e `timestamps.sentToApi` viene valorizzato
+- `GET` con `raw=true`: restituisce i dati senza applicare il filtro output e senza marcare SENT (usato internamente dalla dashboard)
 
-Struttura JSON completa (con tutti i campi selezionabili):
+**Struttura JSON completa (con tutti i campi selezionabili):**
 
 ```json
 {
@@ -395,21 +333,6 @@ Struttura JSON completa (con tutti i campi selezionabili):
   "sourceFormat": "HL7V2",
   "prescribedBy": "Bianchi Luigi",
   "notes": "Methotrexate 75mg in NaCl 0.9% 250ml",
-  "assignedCappa": {
-    "id": "CAPPA_XXXXXXXX",
-    "name": "Cappa Chemioterapici",
-    "description": "Isolatore per citotossici ad alto rischio",
-    "type": "ISOLATORE",
-    "status": "ONLINE",
-    "specializations": ["CHEMOTHERAPY"],
-    "queueLength": 3,
-    "maxQueueSize": 10
-  },
-  "routingInfo": {
-    "appliedFilter": "Chemioterapici su Cappa 1",
-    "fallbackUsed": false,
-    "defaultStrategy": "drug_type"
-  },
   "patient": {
     "id": "123456",
     "name": "Mario Rossi",
@@ -442,15 +365,11 @@ Struttura JSON completa (con tutti i campi selezionabili):
 ```
 
 **Campi output configurabili:**
-Tramite la pagina Web UI "Campi Output" (o l'API `PUT /api/config/output-fields`) è possibile selezionare i campi da includere nella risposta dei `GET /api/prescriptions`. Il filtro è applicato a tutti i GET; il POST non restituisce JSON. I campi sono identificati tramite dot-notation:
-
-I campi sono identificati tramite dot-notation:
+Tramite la pagina Web UI "Campi Output" (o l'API `PUT /api/config/output-fields`) è possibile selezionare i campi da includere nella risposta dei `GET /api/prescriptions`. Il filtro è applicato anche al `POST`. I campi sono identificati tramite dot-notation:
 
 | Gruppo | Campi |
 |--------|-------|
 | Generale | `prescriptionId`*, `status`*, `priority`, `sourceFormat`, `prescribedBy`, `notes`, `deliveryStatus` |
-| Cappa Assegnata | `assignedCappa.id`*, `assignedCappa.name`*, `assignedCappa.description`, `assignedCappa.type`, `assignedCappa.status`, `assignedCappa.specializations`, `assignedCappa.queueLength`, `assignedCappa.maxQueueSize` |
-| Routing | `routingInfo.appliedFilter`, `routingInfo.fallbackUsed`, `routingInfo.defaultStrategy` |
 | Paziente | `patient.id`, `patient.name`, `patient.ward`, `patient.bedNumber` |
 | Preparazione | `preparation.drug`, `preparation.category`, `preparation.code`, `preparation.dosage`, `preparation.route`, `preparation.solvent`, `preparation.volume`, `preparation.infusionRate`, `preparation.finalConcentration`, `preparation.frequency` |
 | Timestamp | `timestamps.received`, `timestamps.dispatched`, `timestamps.sentToApi`, `timestamps.requiredBy` |
@@ -460,20 +379,21 @@ I campi sono identificati tramite dot-notation:
 ### 4.7 Interfaccia di Configurazione
 
 #### 4.7.1 Web UI
-Pannello amministrativo browser-based accessibile via HTTP, composto da 5 pagine:
+Pannello amministrativo browser-based accessibile via HTTP, composto da 4 pagine:
 
 | Pagina | URL | Funzionalità |
 |--------|-----|--------------|
-| Dashboard | `/` | Stato cappe con contatori coda in tempo reale (con status badge colorato, tipologia, coda/max), ultime prescrizioni (dosaggio, contenitore finale), form di test con generatore casuale |
-| Cappe | `/cappe.html` | CRUD cappe con tutti gli attributi: nome, tipologia, descrizione, specializzazioni, stato operativo, capacità massima coda; status badge colorati |
-| Filtri | `/filtri.html` | CRUD filtri di routing, impostazione condizioni e priorità |
-| Configurazione | `/config.html` | Selezione strategia default, visualizzazione config completa |
-| Campi Output | `/output.html` | Selezione checkbox dei campi da includere nel JSON di risposta `POST /api/prescriptions`; anteprima JSON live aggiornata in tempo reale |
+| Dashboard | `/` | Prescrizioni **PENDING** in attesa con paginazione da 10 ("Carica altre"), form di test con generatore casuale per tutti i formati |
+| Filtri | `/filtri.html` | CRUD filtri di configurazione, impostazione condizioni e priorità |
+| Campi Output | `/output.html` | Selezione checkbox dei campi da includere nel JSON di risposta; anteprima JSON live aggiornata in tempo reale |
+| Categorie Farmaco | `/drug-categories.html` | Gestione categorie farmaco, alias (IT/EN) e codici ATC associati |
 
 La dashboard si aggiorna automaticamente ogni 10 secondi.
 
-**Colonne tabella ultime prescrizioni:**
-ID | Priorità | Paziente | Reparto | Farmaco | Dosaggio | Contenitore Finale | Cappa Assegnata | Ricevuta
+**Tabella prescrizioni in attesa (dashboard):**
+- Mostra solo prescrizioni con `deliveryStatus = PENDING` (non ancora consegnate via API), fetched con `?status=PENDING&raw=true` (non marca SENT)
+- Paginazione: 10 righe per blocco, pulsante "Carica altre N" per caricare il blocco successivo
+- Colonne: ID | Priorità | Paziente | Reparto | Farmaco | Dosaggio | Contenitore Finale | Ricevuta
 
 Il campo "Contenitore Finale" mostra: solvente + volume + concentrazione finale calcolata (in grigio).
 
@@ -484,29 +404,20 @@ I messaggi HL7 v2 generati usano il segmento RXE (Pharmacy Encoded Order) con se
 
 I documenti CDA-PrF generati seguono il template POCD_MT000040 con sezione LOINC 57828-6, codici ATC/AIC, nota infusionale LOINC 48767-8 e priorità via `priorityCode` e qualifier TP.
 
-#### 4.7.2 REST API di Configurazione
+#### 4.7.2 REST API
 
 ```
 # Prescrizioni
-POST   /api/prescriptions                        Riceve prescrizione (HL7v2/FHIR/CDA) → dispatch → HTTP 201 (no body)
-GET    /api/prescriptions                        Lista prescrizioni filtrata (output fields applicato) → marca SENT
-GET    /api/prescriptions?status=PENDING         Solo prescrizioni non ancora lette → marca SENT
-GET    /api/prescriptions?status=SENT            Solo prescrizioni già consegnate
-GET    /api/prescriptions?cappaId=CAPPA_XXX      Prescrizioni per cappa specifica → marca SENT
-GET    /api/prescriptions?status=PENDING&cappaId=CAPPA_XXX  PENDING per cappa specifica → marca SENT
-GET    /api/prescriptions/:id                    Dettaglio singola prescrizione → marca SENT
+POST   /api/prescriptions                   Riceve prescrizione (HL7v2/FHIR/CDA) → HTTP 201 + JSON body (filtro output applicato)
+GET    /api/prescriptions                   Lista prescrizioni (filtro output applicato) → marca SENT
+GET    /api/prescriptions?status=PENDING    Solo prescrizioni non ancora lette → marca SENT
+GET    /api/prescriptions?status=SENT       Solo prescrizioni già consegnate
+GET    /api/prescriptions?raw=true          Tutti i campi, nessun filtro, NON marca SENT
+GET    /api/prescriptions?status=PENDING&raw=true  PENDING senza marcare SENT (usato dalla dashboard)
+GET    /api/prescriptions/:id               Dettaglio singola prescrizione → marca SENT
+PATCH  /api/prescriptions/:id/sent          Marca manualmente come SENT
 
-# Cappe
-GET    /api/cappe                  Lista tutte le cappe (include coda di ogni cappa)
-GET    /api/cappe/:id              Dettaglio cappa con coda
-POST   /api/cappe                  Crea nuova cappa (name, description, type, status, maxQueueSize, specializations)
-PUT    /api/cappe/:id              Modifica cappa (tutti gli attributi)
-DELETE /api/cappe/:id              Elimina cappa
-GET    /api/cappe/:id/queue        Coda lavori della cappa
-
-# Configurazione routing
-GET    /api/config                 Configurazione completa
-PUT    /api/config/strategy        Imposta strategia default
+# Filtri di configurazione
 GET    /api/config/filters         Lista filtri ordinati per priorità
 POST   /api/config/filters         Aggiunge filtro
 PUT    /api/config/filters/:id     Modifica filtro
@@ -514,32 +425,30 @@ DELETE /api/config/filters/:id     Elimina filtro
 
 # Configurazione campi output
 GET    /api/config/output-fields   Restituisce lista campi abilitati (null = tutti)
-PUT    /api/config/output-fields   Imposta campi abilitati { "enabledFields": ["prescriptionId", "assignedCappa.id", ...] | null }
+PUT    /api/config/output-fields   Imposta campi abilitati { "enabledFields": ["prescriptionId", ...] | null }
 ```
 
 **Note endpoint output-fields:**
 - `enabledFields: null` → tutti i campi inclusi (nessun filtro)
 - `enabledFields: []` → array vuoto equivale a null (nessun filtro)
-- I campi obbligatori (`prescriptionId`, `status`, `assignedCappa.id`, `assignedCappa.name`) sono sempre inclusi nell'output indipendentemente dalla configurazione
+- I campi obbligatori (`prescriptionId`, `status`) sono sempre inclusi indipendentemente dalla configurazione
 
 ### 4.8 Persistenza
 
-Dalla v1.8 tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM**. Il file `data/config.json` non è più la fonte di verità a regime (rimane solo come riferimento storico del seed iniziale).
+Tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM** (con `synchronize: false`).
 
 | Dato | Meccanismo | Tabella/i |
 |------|-----------|-----------|
-| Configurazione cappe | DB, caricata in cache al boot | `cappe`, `cappa_specializations` |
-| Filtri di routing | DB, caricata in cache al boot | `routing_filters` |
-| Strategia default + output fields | DB, singleton | `app_config`, `app_config_output_fields` |
+| Filtri di configurazione | DB, caricata in cache al boot | `routing_filters` |
+| Campi output | DB, singleton | `app_config` |
 | Prescrizioni ricevute + dispatch result | DB, scritto ad ogni POST | `prescriptions` |
-| Code di lavoro per cappa | DB + cache in-memory sincrona | `cappa_queue` |
+| Categorie farmaco e alias | DB | `drug_categories`, `drug_category_aliases`, `drug_category_atc`, `atc_level1`, `atc_level2` |
 
 **Flusso di avvio (`onModuleInit`):**
-1. `ConfigService` legge da DB cappe, filtri e `app_config` e popola la cache in-memory
-2. `CappeService` conta le voci `PENDING`/`IN_PROGRESS` nella `cappa_queue` per ogni cappa e inizializza la cache dei contatori
-3. Da questo momento tutte le letture sincrone (RoutingEngine) usano la cache; tutte le scritture vanno sia in cache che su DB
+1. `ConfigService` legge da DB filtri e `app_config` e popola la cache in-memory
+2. Da questo momento tutte le letture sincrone usano la cache; tutte le scritture vanno sia in cache che su DB
 
-**Capacità massima storico prescrizioni via API:** 200 elementi per risposta (limitato nel `findAll` con `.take(200)`); il DB non ha limiti.
+**Storico prescrizioni:** il `findAll` restituisce fino a 200 elementi per risposta; il DB non ha limiti.
 
 ---
 
@@ -554,19 +463,18 @@ Dalla v1.8 tutta la persistenza è affidata a un database **MySQL 8** gestito vi
 
 ### 5.2 Performance
 - Latenza di parsing e dispatching: < 100ms per messaggio
-- Nessun limite di throughput definito per la v1.0 (traffico tipico farmacia: decine di prescrizioni/ora)
+- Nessun limite di throughput definito (traffico tipico farmacia: decine di prescrizioni/ora)
 
 ### 5.3 Sicurezza
 - Il servizio opera su rete interna ospedaliera (non esposto su internet)
 - Accesso consigliato tramite SSH tunnel per manutenzione remota
 - CORS abilitato (configurabile per restringere origini)
-- Nessuna autenticazione nella v1.0 (da implementare in v2.0 se richiesto)
-- Nessun dato clinico viene persistito su disco (solo config tecnica)
+- Nessuna autenticazione nella v2.0
 - Le credenziali DB sono configurate tramite variabili d'ambiente (file `.env` in sviluppo, env Docker in produzione)
 
 ### 5.4 Disponibilità
 - Riavvio automatico tramite Docker (`restart: unless-stopped`)
-- Con la persistenza su DB, un riavvio del servizio non perde né la configurazione né le prescrizioni storiche né lo stato delle code
+- Un riavvio del servizio non perde né la configurazione né le prescrizioni storiche (persistenza su DB)
 
 ---
 
@@ -581,11 +489,10 @@ Dalla v1.8 tutta la persistenza è affidata a un database **MySQL 8** gestito vi
 | Parser XML | fast-xml-parser | 4.x |
 | Validazione DTO | class-validator + class-transformer | 0.14 / 0.5 |
 | UUID | uuid | 9.x |
-| File system | fs-extra | 11.x |
-| **Database** | **MySQL 8.0** | **8.0** |
-| **ORM** | **TypeORM** | **0.3.x** |
-| **Driver DB** | **mysql2** | **3.x** |
-| **Env config** | **dotenv** | — |
+| Database | MySQL 8.0 | 8.0 |
+| ORM | TypeORM | 0.3.x |
+| Driver DB | mysql2 | 3.x |
+| Env config | dotenv | — |
 | Web UI | HTML5 + JavaScript Vanilla | — |
 | Containerizzazione | Docker + Docker Compose | — |
 
@@ -611,46 +518,30 @@ Dalla v1.8 tutta la persistenza è affidata a un database **MySQL 8** gestito vi
 │                                    │ NormalizedPrescription  │
 │                                    ▼                         │
 │                      ┌─────────────────────────┐            │
-│                      │    ROUTING ENGINE        │            │
-│                      │  1. Filtri specifici     │            │
-│                      │     (per priorità, AND)  │            │
-│                      │  2. Strategia default    │            │
-│                      │  Normalizzazione alias   │            │
-│                      │  (IT/EN sinonimi cat.)   │            │
+│                      │      DISPATCHER          │            │
+│                      │  Assembla DispatchResult │            │
+│                      │  deliveryStatus: PENDING │            │
 │                      └──────────┬──────────────┘            │
-│                                 │                            │
-│           ┌─────────────────────┼──────────────────────┐    │
-│           ▼                     ▼                        ▼   │
-│    ┌──────────────┐   ┌──────────────────┐   ┌────────────┐ │
-│    │  CAPPA_001   │   │    CAPPA_002     │   │ CAPPA_00N  │ │
-│    │ Chemioterapia│   │   Antibiotici    │   │  Generica  │ │
-│    │  [queue: 3]  │   │    [queue: 1]    │   │ [queue: 0] │ │
-│    └──────┬───────┘   └───────┬──────────┘   └─────┬──────┘ │
-│           └─────────────────┬─┘─────────────────────┘        │
-│                             │ TypeORM (mysql2)                │
-│  ┌──────────────────────────┼──────────────────────────────┐ │
-│  │  CONFIG CACHE (in-memory)│  caricata dal DB al boot      │ │
-│  │  Cappe │ Filtri │ Strategia default │ Output fields      │ │
-│  └──────────────────────────┴──────────────────────────────┘ │
+│                                 │ TypeORM (mysql2)           │
+│  ┌──────────────────────────────┴──────────────────────────┐ │
+│  │  CONFIG CACHE (in-memory) — caricata dal DB al boot     │ │
+│  │  Filtri │ Output fields                                  │ │
+│  └──────────────────────────────────────────────────────── ┘ │
 └───────────────────────────┬─────────────────────────────────┘
                             │ TypeORM (R/W)
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  MySQL 8 (hl7_mysql)                         │
 │                                                              │
-│  ANAGRAFICHE          ENTITÀ             CONFIGURAZIONE      │
-│  ana_drug_categories  cappe              app_config          │
-│  ana_drug_cat_aliases prescriptions      app_config_         │
-│  ana_cappa_types                           output_fields     │
-│  ana_cappa_statuses   ASSOCIAZIONI       routing_filters     │
-│  ana_routing_strat.   cappa_special.                         │
-│  ana_source_formats   routing_filter_    OPERATIVA           │
-│  ana_priorities         drug_categories  cappa_queue         │
-│  ana_output_fields                                           │
+│  ENTITÀ               CONFIGURAZIONE      CATEGORIE FARMACO  │
+│  prescriptions        app_config          drug_categories    │
+│                       routing_filters     drug_cat_aliases   │
+│                                           drug_category_atc  │
+│                                           atc_level1/2       │
 └─────────────────────────────────────────────────────────────┘
                        │ JSON output
                        ▼
-            API Consumer / Postazione Cappa
+            API Consumer / Software Postazione
 ```
 
 ---
@@ -668,12 +559,14 @@ servizio-hl7/
 │   ├── database/
 │   │   ├── database.module.ts               TypeORM forRootAsync — connessione MySQL
 │   │   └── entities/
-│   │       ├── cappa.entity.ts              Entità tabella `cappe`
-│   │       ├── cappa-spec.entity.ts         Entità tabella `cappa_specializations`
 │   │       ├── routing-filter.entity.ts     Entità tabella `routing_filters`
-│   │       ├── app-config.entity.ts         Entità tabella `app_config`
+│   │       ├── app-config.entity.ts         Entità tabella `app_config` (output_fields)
 │   │       ├── prescription.entity.ts       Entità tabella `prescriptions`
-│   │       └── cappa-queue.entity.ts        Entità tabella `cappa_queue`
+│   │       ├── drug-category.entity.ts      Entità tabella `drug_categories`
+│   │       ├── drug-category-alias.entity.ts
+│   │       ├── drug-category-atc.entity.ts
+│   │       ├── atc-level1.entity.ts
+│   │       └── atc-level2.entity.ts
 │   ├── parsers/
 │   │   ├── parsers.module.ts
 │   │   ├── parsers.service.ts               Auto-detect + orchestrazione
@@ -687,30 +580,27 @@ servizio-hl7/
 │   │   └── prescriptions.service.ts         Scrittura/lettura su DB (max 200 per GET)
 │   ├── dispatcher/
 │   │   ├── dispatcher.module.ts
-│   │   ├── dispatcher.service.ts            Assembla DispatchResult
-│   │   └── routing/
-│   │       └── routing-engine.ts            Filtri + strategie + alias normalizzazione
-│   ├── cappe/
-│   │   ├── cappe.module.ts
-│   │   ├── cappe.controller.ts              CRUD /api/cappe
-│   │   └── cappe.service.ts                 Cache contatori coda + persistenza su DB
+│   │   └── dispatcher.service.ts            Assembla DispatchResult da NormalizedPrescription
+│   ├── drug-categories/
+│   │   ├── drug-categories.module.ts
+│   │   ├── drug-categories.controller.ts    CRUD /api/drug-categories
+│   │   └── drug-categories.service.ts       Lettura/scrittura categorie, alias e ATC
 │   └── config/
 │       ├── config.module.ts
-│       ├── config.controller.ts             /api/config
-│       └── config.service.ts               Lettura DB al boot, scrittura asincrona su ogni modifica
+│       ├── config.controller.ts             /api/config/filters, /api/config/output-fields
+│       └── config.service.ts               Lettura DB al boot, cache in-memory, filtro output
 ├── frontend/
-│   ├── index.html                           Dashboard (con generatore test casuale)
-│   ├── cappe.html                           Gestione cappe (tipo, stato, maxCoda, descrizione)
-│   ├── filtri.html                          Gestione filtri routing
-│   ├── config.html                          Configurazione strategia
+│   ├── index.html                           Dashboard (prescrizioni PENDING + generatore test)
+│   ├── filtri.html                          Gestione filtri di configurazione
 │   ├── output.html                          Configurazione campi output JSON
+│   ├── drug-categories.html                 Gestione categorie farmaco, alias e ATC
 │   └── assets/
 │       ├── style.css
 │       └── app.js                           Logic UI + generatore prescrizioni random
-├── data/
-│   └── config.json                          Seed storico (non più fonte di verità — sostituito dal DB)
+├── migrations/
+│   ├── v2.0_remove_cappe.sql                Rimozione tabelle cappe e colonne correlate
+│   └── ...
 ├── .env                                     Variabili connessione DB per sviluppo locale (non in git)
-├── .env.example → vedere DatabaseHL7/.env.example
 ├── HL7Service.MD                            Questo documento
 ├── Dockerfile
 ├── docker-compose.yml
@@ -722,53 +612,59 @@ servizio-hl7/
 
 ## 9. Schema Database
 
-Il database `hl7service` (MySQL 8) è definito in `DatabaseHL7/schema.sql` ed è organizzato in 5 sezioni. Ogni tabella ha `id INT AUTO_INCREMENT` come chiave primaria; le chiavi naturali (`code`, `field_path`) sono promosse a vincolo `UNIQUE`.
+Il database `hl7service` (MySQL 8) è gestito con `synchronize: false` in TypeORM. Le migrazioni DDL sono applicate manualmente tramite i file SQL nella cartella `migrations/`.
 
-### 9.1 ANAGRAFICHE — tabelle `ana_*`
-
-Tabelle di riferimento a sola lettura (modificabili dall'amministratore, non dal flusso operativo).
-
-| Tabella | PK | UNIQUE | Contenuto |
-|---|---|---|---|
-| `ana_drug_categories` | `id` | `code` | Categorie farmaco standard (CHEMOTHERAPY, ANTIBIOTIC, …) |
-| `ana_drug_category_aliases` | `id` | `alias` | Sinonimi IT/EN → categoria standard (es. CHEMIOTERAPICI → CHEMOTHERAPY) |
-| `ana_cappa_types` | `id` | `code` | Tipi cappa (ISOLATORE, BSC, FLUSSO_LAMINARE_VERTICALE, …) |
-| `ana_cappa_statuses` | `id` | `code` | Stati operativi (ONLINE, OFFLINE, MANUTENZIONE, GUASTO) |
-| `ana_routing_strategies` | `id` | `code` | Strategie dispatch con descrizione (load_balance, drug_type, …) |
-| `ana_source_formats` | `id` | `code` | Formati messaggio (HL7V2, FHIR_JSON, FHIR_XML, CDA_PRF) |
-| `ana_priorities` | `id` | `code` | Livelli priorità (STAT, URGENT, ROUTINE) |
-| `ana_output_fields` | `id` | `field_path` | Catalogo completo campi esportabili con label e descrizione |
-
-### 9.2 ENTITÀ — tabelle principali
+### 9.1 PRESCRIZIONI
 
 | Tabella | PK | Contenuto |
 |---|---|---|
-| `cappe` | `id` VARCHAR (es. `CAPPA_6741F914`) | Cappe fisiche di preparazione |
-| `prescriptions` | `id` VARCHAR UUID | Prescrizioni ricevute + snapshot dispatch completo (colonne indicizzate + JSON audit) |
+| `prescriptions` | `id` VARCHAR UUID | Prescrizioni ricevute + snapshot DispatchResult. Colonne chiave: `prescription_id` (UUID), `delivery_status` (PENDING/SENT), `patient_name`, `patient_ward`, `drug_name`, `dosage`, `priority`, `source_format`, `received_at`, `dispatched_at`, `sent_to_api_at`, più colonne JSON per dati estesi. |
 
-### 9.3 ASSOCIAZIONI — tabelle relazionali
-
-| Tabella | PK | Relazione |
-|---|---|---|
-| `cappa_specializations` | `id` INT | Cappa ↔ categoria farmaco (es. CAPPA_001 → CHEMOTHERAPY) |
-| `routing_filter_drug_categories` | `id` INT | Filtro routing ↔ categoria farmaco (forma normalizzata del JSON `condition_drug_cats`) |
-| `cappa_queue` | `id` INT | Prescrizioni in coda per cappa con stato PENDING / IN_PROGRESS / COMPLETED |
-
-### 9.4 CONFIGURAZIONE
+### 9.2 CONFIGURAZIONE
 
 | Tabella | PK | Contenuto |
 |---|---|---|
-| `app_config` | `id` INT (singleton = 1) | Strategia default + array JSON output fields |
-| `app_config_output_fields` | `id` INT | Campi output attivi (forma normalizzata, FK su `ana_output_fields`) |
-| `routing_filters` | `id` VARCHAR UUID | Regole routing prioritizzate (condizioni AND, target cappa, fallback) |
+| `app_config` | `id` INT (singleton = 1) | Array JSON `output_fields` (null = tutti i campi inclusi) |
+| `routing_filters` | `id` VARCHAR UUID | Filtri configurabili: `name`, `enabled`, `priority`, `condition_drug_cats` (JSON), `condition_ward`, `condition_urgency` |
 
-### 9.5 Seed iniziale
+### 9.3 CATEGORIE FARMACO
 
-I dati iniziali (cappe, specializzazioni, configurazione da `data/config.json`) e tutti i valori delle anagrafiche sono inseriti con `INSERT ... ON DUPLICATE KEY UPDATE` direttamente in `schema.sql`, che viene eseguito automaticamente dal container MySQL al primo avvio.
+| Tabella | PK | Contenuto |
+|---|---|---|
+| `drug_categories` | `id` INT | Categorie standard (CHEMOTHERAPY, ANTIBIOTIC, …) con nome e descrizione |
+| `drug_category_aliases` | `id` INT | Sinonimi IT/EN → categoria (es. CHEMIOTERAPICI → CHEMOTHERAPY) |
+| `drug_category_atc` | `id` INT | Codici ATC associati a ogni categoria |
+| `atc_level1` | `id` INT | Primo livello ATC (classi anatomiche principali) |
+| `atc_level2` | `id` INT | Secondo livello ATC (sottogruppi terapeutici) |
 
-> **Nota specializzazioni**: le `specializations` delle cappe sono normalizzate a categoria standard al momento del seed (`CHEMIOTERAPICI` → `CHEMOTHERAPY`). Il routing engine esegue la stessa normalizzazione a runtime tramite `ana_drug_category_aliases`.
+### 9.4 Migrazione v2.0
 
-> **Nota `output_fields`**: `NULL` in `app_config.output_fields` significa nessun filtro (tutti i campi inclusi). Il `POST /api/prescriptions` non restituisce JSON, quindi il filtro si applica solo ai `GET`.
+Il file `migrations/v2.0_remove_cappe.sql` rimuove tutte le strutture legate alle cappe:
+
+```sql
+-- Rimozione FK e colonne da prescriptions
+ALTER TABLE prescriptions DROP FOREIGN KEY fk_prescription_cappa;
+ALTER TABLE prescriptions DROP INDEX idx_assigned_cappa;
+ALTER TABLE prescriptions DROP COLUMN assigned_cappa_id,
+                           DROP COLUMN assigned_cappa,
+                           DROP COLUMN routing_info;
+
+-- Rimozione colonne da routing_filters
+ALTER TABLE routing_filters DROP COLUMN target_cappa_id;
+ALTER TABLE routing_filters DROP COLUMN fallback_to_default;
+
+-- Rimozione colonna da app_config
+ALTER TABLE app_config DROP COLUMN default_routing_strategy;
+
+-- Eliminazione tabelle cappe
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS cappa_queue;
+DROP TABLE IF EXISTS cappa_specializations;
+DROP TABLE IF EXISTS ana_cappa_statuses;
+DROP TABLE IF EXISTS ana_cappa_types;
+DROP TABLE IF EXISTS cappe;
+SET FOREIGN_KEY_CHECKS = 1;
+```
 
 ---
 
@@ -848,16 +744,16 @@ RXC|A|L01BA01^Methotrexate^L|75|mg\r
 TQ1|1|||Once|||||S\r
 NTE|||Methotrexate 75mg in NaCl 0.9% 250ml'
 
-# Risposta: HTTP 201 Created (nessun body)
+# Risposta: HTTP 201 Created + JSON body con i campi decodificati
 ```
 
-### Lettura preparazioni PENDING per una cappa
+### Lettura prescrizioni PENDING (sistema di postazione)
 ```bash
-# La postazione cappa legge le proprie preparazioni in attesa
-curl http://farmacia-server:3000/api/prescriptions?status=PENDING&cappaId=CAPPA_XXXXXXXX
+# Il software di postazione legge le prescrizioni in attesa
+curl http://farmacia-server:3000/api/prescriptions?status=PENDING
 
-# La risposta riporta deliveryStatus=PENDING; dopo l'invio viene aggiornato a SENT
-# La chiamata successiva con status=PENDING restituirà array vuoto []
+# La risposta riporta deliveryStatus=PENDING; dopo l'invio HTTP viene aggiornato a SENT
+# La chiamata successiva con status=PENDING restituirà solo le nuove prescrizioni
 ```
 
 ### Invio prescrizione HL7 v2 (segmento RXO — convenzione italiana)
@@ -929,14 +825,13 @@ curl -X POST http://farmacia-server:3000/api/prescriptions \
         <consumable><manufacturedProduct><manufacturedLabeledDrug>
           <code code="035378055" codeSystem="2.16.840.1.113883.2.9.6.1.5"
                 displayName="Methotrexate">
-            <translation code="L01BA01" codeSystem="2.16.840.1.113883.6.73"
-                         displayName="Methotrexate"/>
+            <translation code="L01BA01" codeSystem="2.16.840.1.113883.6.73"/>
           </code>
         </manufacturedLabeledDrug></manufacturedProduct></consumable>
         <entryRelationship typeCode="SUBJ">
           <act classCode="ACT" moodCode="EVN">
             <code code="48767-8" codeSystem="2.16.840.1.113883.6.1"/>
-            <text>Methotrexate 75mg in NaCl 0.9% 250ml, velocità 100ml/h</text>
+            <text>NaCl 0.9% 250ml velocita 100ml/h</text>
           </act>
         </entryRelationship>
       </substanceAdministration></entry>
@@ -944,69 +839,3 @@ curl -X POST http://farmacia-server:3000/api/prescriptions \
   </component></structuredBody></component>
 </ClinicalDocument>'
 ```
-
-### Aggiunta cappa
-```bash
-curl -X POST http://farmacia-server:3000/api/cappe \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Cappa Chemioterapici",
-    "description": "Isolatore per citotossici ad alto rischio",
-    "type": "ISOLATORE",
-    "maxQueueSize": 10,
-    "specializations": ["CHEMIOTERAPICI"]
-  }'
-```
-
-### Configurazione campi output JSON
-```bash
-# Abilita solo i campi essenziali per un sistema terzo
-curl -X PUT http://farmacia-server:3000/api/config/output-fields \
-  -H "Content-Type: application/json" \
-  -d '{
-    "enabledFields": [
-      "prescriptionId", "status", "priority",
-      "assignedCappa.id", "assignedCappa.name", "assignedCappa.queueLength",
-      "patient.id", "patient.name", "patient.ward",
-      "preparation.drug", "preparation.dosage", "preparation.route",
-      "timestamps.received", "timestamps.dispatched"
-    ]
-  }'
-
-# Ripristina tutti i campi (nessun filtro)
-curl -X PUT http://farmacia-server:3000/api/config/output-fields \
-  -H "Content-Type: application/json" \
-  -d '{"enabledFields": null}'
-```
-
-### Configurazione filtro di routing
-```bash
-curl -X POST http://farmacia-server:3000/api/config/filters \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Chemioterapici su Cappa dedicata",
-    "priority": 1,
-    "enabled": true,
-    "conditions": {"drugCategories": ["CHEMOTHERAPY"], "ward": null, "urgency": null},
-    "targetCappaId": "CAPPA_XXXXXXXX",
-    "fallbackToDefault": true
-  }'
-```
-
----
-
-## 12. Roadmap Futura (v2.0)
-
-| Feature | Priorità | Stato | Note |
-|---------|----------|-------|------|
-| Autenticazione JWT / API Key | Alta | Da fare | Per ambienti multi-reparto |
-| ~~Persistenza code su database~~ | ~~Media~~ | **✅ v1.8** | MySQL 8 via TypeORM |
-| ~~Persistenza prescrizioni su database~~ | ~~Media~~ | **✅ v1.8** | Tabella `prescriptions` con snapshot JSON + colonne indicizzate |
-| ~~Schema DB strutturato (anagrafiche, entità, associazioni)~~ | ~~Media~~ | **✅ v1.8** | 16 tabelle in 5 sezioni |
-| Notifiche real-time via WebSocket | Media | Da fare | Aggiornamento push alle cappe |
-| Audit log clinico | Alta | Da fare | Tracciabilità normativa |
-| Supporto HL7 FHIR R5 | Bassa | Da fare | Aggiornamento versione FHIR |
-| Dashboard metriche (tempo medio preparazione) | Media | Da fare | Reportistica (dati ora disponibili su DB) |
-| Integrazione LDAP/AD per autenticazione | Media | Da fare | SSO ospedaliero |
-| Multi-tenant (più farmacie) | Bassa | Da fare | Scalabilità organizzativa |
-| Completamento stato coda (IN_PROGRESS, COMPLETED) via API | Media | Da fare | Feedback dalle postazioni |

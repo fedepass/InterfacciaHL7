@@ -21,7 +21,7 @@ export class PrescriptionsService {
     return result;
   }
 
-  async findAll(deliveryStatus?: string, cappaId?: string): Promise<DispatchResult[]> {
+  async findAll(deliveryStatus?: string): Promise<DispatchResult[]> {
     const qb = this.prescriptionRepo
       .createQueryBuilder('p')
       .orderBy('p.tsDispatched', 'DESC')
@@ -29,9 +29,6 @@ export class PrescriptionsService {
 
     if (deliveryStatus) {
       qb.andWhere('p.deliveryStatus = :ds', { ds: deliveryStatus.toUpperCase() });
-    }
-    if (cappaId) {
-      qb.andWhere('p.assignedCappaId = :cappaId', { cappaId });
     }
 
     const entities = await qb.getMany();
@@ -61,9 +58,6 @@ export class PrescriptionsService {
       sourceFormat: r.sourceFormat,
       prescribedBy: r.prescribedBy ?? null,
       notes: r.notes ?? null,
-      assignedCappaId: r.assignedCappa.id,
-      assignedCappa: r.assignedCappa as unknown as Record<string, any>,
-      routingInfo: r.routingInfo as unknown as Record<string, any>,
       preparation: r.preparation as unknown as Record<string, any>,
       patientId: r.patient.id,
       patientName: r.patient.name,
@@ -90,8 +84,6 @@ export class PrescriptionsService {
       sourceFormat: e.sourceFormat as any,
       prescribedBy: e.prescribedBy ?? undefined,
       notes: e.notes ?? undefined,
-      assignedCappa: e.assignedCappa as any,
-      routingInfo: e.routingInfo as any,
       patient: {
         id: e.patientId,
         name: e.patientName,

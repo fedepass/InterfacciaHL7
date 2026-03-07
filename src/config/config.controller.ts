@@ -1,20 +1,9 @@
 import { Controller, Get, Put, Post, Delete, Body, Param, NotFoundException } from '@nestjs/common';
-import { ConfigService, DefaultStrategy, RoutingFilter } from './config.service';
+import { ConfigService, RoutingFilter } from './config.service';
 
 @Controller('api/config')
 export class ConfigController {
   constructor(private readonly configService: ConfigService) {}
-
-  @Get()
-  getConfig() {
-    return this.configService.getConfig();
-  }
-
-  @Put('strategy')
-  setStrategy(@Body() body: { strategy: DefaultStrategy }) {
-    this.configService.setDefaultStrategy(body.strategy);
-    return { defaultRoutingStrategy: body.strategy };
-  }
 
   @Get('filters')
   getFilters() {

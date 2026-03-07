@@ -32,17 +32,6 @@ export class PrescriptionEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  // Cappa assegnata
-  @Column({ name: 'assigned_cappa_id', length: 50 })
-  assignedCappaId: string;
-
-  @Column({ name: 'assigned_cappa', type: 'json' })
-  assignedCappa: Record<string, any>;
-
-  // Routing info (snapshot)
-  @Column({ name: 'routing_info', type: 'json' })
-  routingInfo: Record<string, any>;
-
   // Preparazione completa (snapshot JSON)
   @Column({ name: 'preparation', type: 'json' })
   preparation: Record<string, any>;

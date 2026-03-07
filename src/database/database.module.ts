@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import * as dotenv from 'dotenv';
-import { CappaEntity } from './entities/cappa.entity';
-import { CappaSpecEntity } from './entities/cappa-spec.entity';
 import { RoutingFilterEntity } from './entities/routing-filter.entity';
 import { AppConfigEntity } from './entities/app-config.entity';
 import { PrescriptionEntity } from './entities/prescription.entity';
-import { CappaQueueEntity } from './entities/cappa-queue.entity';
+import { DrugCategoryEntity } from './entities/drug-category.entity';
+import { DrugCategoryAliasEntity } from './entities/drug-category-alias.entity';
+import { AtcLevel1Entity } from './entities/atc-level1.entity';
+import { AtcLevel2Entity } from './entities/atc-level2.entity';
+import { DrugCategoryAtcEntity } from './entities/drug-category-atc.entity';
 
 dotenv.config();
 
@@ -21,14 +23,16 @@ dotenv.config();
         username: process.env.DB_USER ?? 'hl7user',
         password: process.env.DB_PASSWORD ?? 'hl7password',
         entities: [
-          CappaEntity,
-          CappaSpecEntity,
           RoutingFilterEntity,
           AppConfigEntity,
           PrescriptionEntity,
-          CappaQueueEntity,
+          DrugCategoryEntity,
+          DrugCategoryAliasEntity,
+          AtcLevel1Entity,
+          AtcLevel2Entity,
+          DrugCategoryAtcEntity,
         ],
-        synchronize: false, // usa schema.sql per la struttura
+        synchronize: false,
         timezone: 'Z',
         extra: {
           ssl: false,
@@ -36,12 +40,14 @@ dotenv.config();
       }),
     }),
     TypeOrmModule.forFeature([
-      CappaEntity,
-      CappaSpecEntity,
       RoutingFilterEntity,
       AppConfigEntity,
       PrescriptionEntity,
-      CappaQueueEntity,
+      DrugCategoryEntity,
+      DrugCategoryAliasEntity,
+      AtcLevel1Entity,
+      AtcLevel2Entity,
+      DrugCategoryAtcEntity,
     ]),
   ],
   exports: [TypeOrmModule],

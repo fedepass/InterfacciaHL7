@@ -1,96 +1,81 @@
-const API = '';
+// ─── Storico prescrizioni (PENDING, paginate) ─────────────────────────────────
 
-// ─── Lookup tables cappe ─────────────────────────────────────────────────────
+const HISTORY_PAGE_SIZE = 10;
+let _historyData = [];
+let _historyShown = 0;
 
-const CAPPA_TYPES = {
-  FLUSSO_LAMINARE_VERTICALE:   'Flusso laminare verticale',
-  FLUSSO_LAMINARE_ORIZZONTALE: 'Flusso laminare orizzontale',
-  ISOLATORE:                   'Isolatore',
-  BSC:                         'Cappa biologica (BSC)',
-  CHIMICA:                     'Cappa chimica',
-  DISPENSAZIONE:               'Postazione dispensazione',
-  ALTRO:                       'Altro',
-};
+function _historyRow(p) {
+  const prep = p.preparation;
+  const dosaggio = prep.dosage ?? '—';
+  const parti = [];
+  if (prep.solvent) parti.push(prep.solvent);
+  if (prep.volume)  parti.push(prep.volume);
+  const contenitore = parti.length ? parti.join(' ') : '—';
+  const conc = prep.finalConcentration
+    ? `<div style="font-size:.72rem;color:#718096">${prep.finalConcentration}</div>`
+    : '';
+  return `
+  <tr>
+    <td style="font-family:monospace;font-size:.75rem">${p.prescriptionId.substring(0,8)}…</td>
+    <td><span class="priority ${p.priority}">${p.priority}</span></td>
+    <td>${p.patient.name}</td>
+    <td>${p.patient.ward}</td>
+    <td>${prep.drug}</td>
+    <td>${dosaggio}</td>
+    <td>${contenitore}${conc}</td>
+    <td>${fmtDate(p.timestamps.received)}</td>
+  </tr>`;
+}
 
-const STATUS_LABELS = {
-  ONLINE:       'Online',
-  OFFLINE:      'Offline',
-  MANUTENZIONE: 'Manutenzione',
-  GUASTO:       'Guasto',
-};
+function _renderHistoryPage() {
+  const tbody = document.getElementById('history-body');
+  if (!tbody) return;
+  const slice = _historyData.slice(0, _historyShown);
+  tbody.innerHTML = slice.map(_historyRow).join('');
 
-const STATUS_CSS = {
-  ONLINE:       'status-online',
-  OFFLINE:      'status-offline',
-  MANUTENZIONE: 'status-manutenzione',
-  GUASTO:       'status-guasto',
-};
+  const countEl = document.getElementById('history-count');
+  if (countEl) countEl.textContent = `(${_historyData.length})`;
 
-// ─── Dashboard ──────────────────────────────────────────────────────────────
+  const pagDiv  = document.getElementById('history-pagination');
+  const pagInfo = document.getElementById('history-pag-info');
+  const loadBtn = document.getElementById('history-load-more');
+  const remaining = _historyData.length - _historyShown;
 
-async function loadCappe() {
-  const cappe = await apiFetch('/api/cappe');
-  const container = document.getElementById('cappe-cards');
-  if (!container) return;
-  if (!cappe || cappe.length === 0) {
-    container.innerHTML = '<div class="card"><div class="card-title">Nessuna cappa configurata</div><div class="card-label">Vai su <a href="/cappe.html">Cappe</a> per aggiungerne</div></div>';
-    return;
+  if (_historyData.length > HISTORY_PAGE_SIZE) {
+    pagDiv.style.display = 'flex';
+    pagInfo.textContent = `Mostrate ${_historyShown} di ${_historyData.length}`;
+    if (remaining > 0) {
+      loadBtn.style.display = '';
+      loadBtn.textContent = `Carica altre ${Math.min(remaining, HISTORY_PAGE_SIZE)}`;
+    } else {
+      loadBtn.style.display = 'none';
+    }
+  } else {
+    pagDiv.style.display = 'none';
   }
-  container.innerHTML = cappe.map(c => {
-    const pending = c.queueLength ?? (c.queue ?? []).filter(i => i.status !== 'COMPLETED').length;
-    const status = c.status ?? 'ONLINE';
-    const maxQ = c.maxQueueSize ?? 0;
-    const queueLabel = maxQ > 0
-      ? `${pending}<span style="font-size:.9rem;color:#718096">/${maxQ}</span>`
-      : `${pending}`;
-    const isEligible = c.active && status === 'ONLINE';
-    const typeName = CAPPA_TYPES[c.type] ?? c.type ?? '—';
-    return `
-      <div class="card ${isEligible ? '' : 'inactive'}">
-        <div class="card-badge status-badge ${STATUS_CSS[status] ?? ''}">${STATUS_LABELS[status] ?? status}</div>
-        <div class="card-title">${c.name}</div>
-        <div style="font-size:.7rem;color:#718096;margin-bottom:.4rem">${typeName}</div>
-        <div class="card-queue">${queueLabel}</div>
-        <div class="card-label">In coda</div>
-        ${c.specializations?.length ? `<div class="card-specs">Spec: ${c.specializations.join(', ')}</div>` : ''}
-        ${!c.active ? '<div class="card-specs" style="color:#e53e3e">Disabilitata</div>' : ''}
-      </div>`;
-  }).join('');
 }
 
 async function loadHistory() {
-  const data = await apiFetch('/api/prescriptions?raw=true');
   const tbody = document.getElementById('history-body');
   if (!tbody) return;
-  if (!data || data.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">Nessuna prescrizione ricevuta</td></tr>';
+  const data = await apiFetch('/api/prescriptions?status=PENDING&raw=true');
+  _historyData = data ?? [];
+  _historyShown = Math.min(HISTORY_PAGE_SIZE, _historyData.length);
+
+  if (_historyData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">Nessuna prescrizione in attesa</td></tr>';
+    const countEl = document.getElementById('history-count');
+    if (countEl) countEl.textContent = '(0)';
+    const pagDiv = document.getElementById('history-pagination');
+    if (pagDiv) pagDiv.style.display = 'none';
     return;
   }
-  tbody.innerHTML = data.map(p => {
-    const prep = p.preparation;
-    // Dosaggio: valore + unità (es. "75 mg")
-    const dosaggio = prep.dosage ?? '—';
-    // Contenitore finale: solvente + volume + concentrazione calcolata
-    const parti = [];
-    if (prep.solvent) parti.push(prep.solvent);
-    if (prep.volume)  parti.push(prep.volume);
-    const contenitore = parti.length ? parti.join(' ') : '—';
-    const conc = prep.finalConcentration
-      ? `<div style="font-size:.72rem;color:#718096">${prep.finalConcentration}</div>`
-      : '';
-    return `
-    <tr>
-      <td style="font-family:monospace;font-size:.75rem">${p.prescriptionId.substring(0,8)}…</td>
-      <td><span class="priority ${p.priority}">${p.priority}</span></td>
-      <td>${p.patient.name}</td>
-      <td>${p.patient.ward}</td>
-      <td>${prep.drug}</td>
-      <td>${dosaggio}</td>
-      <td>${contenitore}${conc}</td>
-      <td><strong>${p.assignedCappa.name}</strong></td>
-      <td>${fmtDate(p.timestamps.received)}</td>
-    </tr>`;
-  }).join('');
+  _renderHistoryPage();
+}
+
+function loadMoreHistory() {
+  _historyShown = Math.min(_historyShown + HISTORY_PAGE_SIZE, _historyData.length);
+  _renderHistoryPage();
 }
 
 // ─── Generatore prescrizioni di test casuali ─────────────────────────────────
@@ -583,7 +568,6 @@ async function sendTest() {
     const text = await res.text();
     if (res.ok) {
       resultEl.textContent = `Prescrizione inviata (HTTP ${res.status})`;
-      loadCappe();
       loadHistory();
     } else {
       const data = text ? JSON.parse(text) : {};
@@ -592,108 +576,6 @@ async function sendTest() {
   } catch (e) {
     resultEl.textContent = 'Errore: ' + e.message;
   }
-}
-
-// ─── Cappe ───────────────────────────────────────────────────────────────────
-
-async function loadCappeList() {
-  const cappe = await apiFetch('/api/cappe');
-  const container = document.getElementById('cappe-list');
-  if (!container) return;
-  if (!cappe || cappe.length === 0) {
-    container.innerHTML = '<div class="loading">Nessuna cappa configurata</div>';
-    return;
-  }
-  container.innerHTML = cappe.map(c => {
-    const status = c.status ?? 'ONLINE';
-    const pending = c.queueLength ?? (c.queue ?? []).filter(i => i.status !== 'COMPLETED').length;
-    const maxQ = c.maxQueueSize ?? 0;
-    const queueText = maxQ > 0 ? `${pending}/${maxQ}` : `${pending}`;
-    const typeName = CAPPA_TYPES[c.type] ?? c.type ?? '—';
-    const statusBadge = `<span class="status-badge ${STATUS_CSS[status] ?? ''}">${STATUS_LABELS[status] ?? status}</span>`;
-    const capacityWarn = maxQ > 0 && pending >= maxQ
-      ? `<span style="color:#e53e3e;font-size:.75rem;font-weight:600"> — Coda piena</span>` : '';
-    return `
-    <div class="cappa-row ${c.active ? '' : 'inactive'}" id="cappa-${c.id}">
-      <div class="cappa-info">
-        <div class="cappa-name">
-          ${c.name}
-          <small style="color:#a0aec0;font-weight:400">${c.id}</small>
-          ${!c.active ? '<small style="color:#e53e3e;font-weight:600"> — Disabilitata</small>' : ''}
-        </div>
-        <div class="cappa-meta" style="display:flex;gap:.5rem;align-items:center;margin-top:.3rem;flex-wrap:wrap">
-          ${statusBadge}
-          <span style="color:#4a5568">${typeName}</span>
-          <span style="color:#718096">|</span>
-          <span style="color:#4a5568">Coda: <strong>${queueText}</strong>${capacityWarn}</span>
-        </div>
-        ${c.description ? `<div class="cappa-meta" style="margin-top:.25rem;font-style:italic;color:#718096">${c.description}</div>` : ''}
-        ${c.specializations?.length ? `<div class="cappa-meta" style="margin-top:.2rem">Spec: ${c.specializations.join(', ')}</div>` : ''}
-      </div>
-      <div class="cappa-actions">
-        <button class="btn-sm" onclick='openEdit(${JSON.stringify(c)})'>Modifica</button>
-        <button class="btn-sm ${c.active ? 'btn-danger' : 'btn-primary'}" onclick="toggleCappa('${c.id}', ${!c.active})">
-          ${c.active ? 'Disabilita' : 'Abilita'}
-        </button>
-        <button class="btn-sm btn-danger" onclick="deleteCappa('${c.id}')">Elimina</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function createCappa() {
-  const name = document.getElementById('new-name').value.trim();
-  const type = document.getElementById('new-type').value;
-  const description = document.getElementById('new-desc').value.trim();
-  const specsRaw = document.getElementById('new-specs').value.trim();
-  const maxQueueSize = parseInt(document.getElementById('new-maxqueue').value, 10) || 0;
-  if (!name) return alert('Inserisci un nome per la cappa');
-  const specializations = specsRaw ? specsRaw.split(',').map(s => s.trim().toUpperCase()) : [];
-  await apiFetch('/api/cappe', 'POST', { name, type, description, specializations, maxQueueSize });
-  document.getElementById('new-name').value = '';
-  document.getElementById('new-desc').value = '';
-  document.getElementById('new-specs').value = '';
-  document.getElementById('new-maxqueue').value = '0';
-  document.getElementById('new-type').value = 'ALTRO';
-  loadCappeList();
-}
-
-async function toggleCappa(id, active) {
-  await apiFetch(`/api/cappe/${id}`, 'PUT', { active });
-  loadCappeList();
-}
-
-async function deleteCappa(id) {
-  if (!confirm('Eliminare questa cappa?')) return;
-  await apiFetch(`/api/cappe/${id}`, 'DELETE');
-  loadCappeList();
-}
-
-function openEdit(cappa) {
-  document.getElementById('edit-id').value = cappa.id;
-  document.getElementById('edit-name').value = cappa.name;
-  document.getElementById('edit-type').value = cappa.type ?? 'ALTRO';
-  document.getElementById('edit-desc').value = cappa.description ?? '';
-  document.getElementById('edit-specs').value = (cappa.specializations ?? []).join(', ');
-  document.getElementById('edit-status').value = cappa.status ?? 'ONLINE';
-  document.getElementById('edit-maxqueue').value = cappa.maxQueueSize ?? 0;
-  document.getElementById('modal').classList.remove('hidden');
-}
-
-function closeModal() { document.getElementById('modal').classList.add('hidden'); }
-
-async function saveEdit() {
-  const id = document.getElementById('edit-id').value;
-  const name = document.getElementById('edit-name').value.trim();
-  const type = document.getElementById('edit-type').value;
-  const description = document.getElementById('edit-desc').value.trim();
-  const specsRaw = document.getElementById('edit-specs').value.trim();
-  const status = document.getElementById('edit-status').value;
-  const maxQueueSize = parseInt(document.getElementById('edit-maxqueue').value, 10) || 0;
-  const specializations = specsRaw ? specsRaw.split(',').map(s => s.trim().toUpperCase()) : [];
-  await apiFetch(`/api/cappe/${id}`, 'PUT', { name, type, description, specializations, status, maxQueueSize });
-  closeModal();
-  loadCappeList();
 }
 
 // ─── Output Fields Configuration ─────────────────────────────────────────────
@@ -714,32 +596,6 @@ const OUTPUT_FIELD_DEFS = [
     path: 'notes',           label: 'Note cliniche',        desc: 'Note o istruzioni aggiuntive allegate alla prescrizione' },
   { group: 'Generale', groupKey: 'root', icon: '📋',
     path: 'deliveryStatus',  label: 'Stato consegna API',   desc: 'SENT = risposta HTTP restituita al sistema terzo; PENDING = non ancora consegnata' },
-
-  // ── Cappa assegnata ───────────────────────────────────────────────────────
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.id',              label: 'ID cappa',             desc: 'Identificatore interno della cappa assegnata' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.name',            label: 'Nome cappa',           desc: 'Nome descrittivo della cappa assegnata' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.description',     label: 'Descrizione cappa',    desc: 'Note o descrizione configurata sulla cappa' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.type',            label: 'Tipologia cappa',      desc: 'Tipo strutturale: FLUSSO_LAMINARE_VERTICALE, ISOLATORE, BSC, ecc.' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.status',          label: 'Stato operativo',      desc: 'Stato corrente della cappa: ONLINE, OFFLINE, MANUTENZIONE, GUASTO' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.specializations', label: 'Specializzazioni',     desc: 'Categorie farmaco per cui la cappa è attrezzata' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.queueLength',     label: 'Preparazioni in coda', desc: 'Numero di preparazioni in coda al momento del dispatch (inclusa questa)' },
-  { group: 'Cappa Assegnata', groupKey: 'assignedCappa', icon: '🏭',
-    path: 'assignedCappa.maxQueueSize',    label: 'Capacità massima coda',desc: 'Limite massimo configurato sulla cappa (0 = illimitata)' },
-
-  // ── Routing info ──────────────────────────────────────────────────────────
-  { group: 'Routing', groupKey: 'routingInfo', icon: '🗺️',
-    path: 'routingInfo.appliedFilter',   label: 'Filtro applicato',   desc: 'Nome del filtro che ha determinato l\'assegnazione (null se default)' },
-  { group: 'Routing', groupKey: 'routingInfo', icon: '🗺️',
-    path: 'routingInfo.fallbackUsed',    label: 'Fallback usato',     desc: 'true se la cappa target era non disponibile e si è usato il fallback' },
-  { group: 'Routing', groupKey: 'routingInfo', icon: '🗺️',
-    path: 'routingInfo.defaultStrategy', label: 'Strategia default',  desc: 'Strategia usata per la selezione della cappa' },
 
   // ── Paziente ──────────────────────────────────────────────────────────────
   { group: 'Paziente', groupKey: 'patient', icon: '👤',
@@ -785,7 +641,7 @@ const OUTPUT_FIELD_DEFS = [
   { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
     path: 'timestamps.received',   label: 'Data ricezione',  desc: 'Data/ora di ricezione della prescrizione (ISO 8601)' },
   { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
-    path: 'timestamps.dispatched', label: 'Data dispatch',   desc: 'Data/ora di assegnazione alla cappa (ISO 8601)' },
+    path: 'timestamps.dispatched', label: 'Data dispatch',   desc: 'Data/ora di elaborazione della prescrizione (ISO 8601)' },
   { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
     path: 'timestamps.requiredBy', label: 'Data richiesta',  desc: 'Data/ora entro cui la preparazione è necessaria (se presente)' },
   { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
@@ -800,14 +656,6 @@ const _SAMPLE_OUTPUT = {
   sourceFormat: 'FHIR_JSON',
   prescribedBy: 'Dott. Bianchi Luigi',
   notes: 'Somministrare lentamente — monitorare reazioni avverse',
-  assignedCappa: {
-    id: 'CAPPA_001', name: 'Cappa Chemioterapici',
-    description: 'Cappa dedicata ai farmaci citotossici',
-    type: 'FLUSSO_LAMINARE_VERTICALE', status: 'ONLINE',
-    specializations: ['CHEMOTHERAPY', 'IMMUNOSUPPRESSANT'],
-    queueLength: 3, maxQueueSize: 10,
-  },
-  routingInfo: { appliedFilter: 'Chemio su Cappa 1', fallbackUsed: false, defaultStrategy: 'drug_type' },
   patient: { id: 'P123456', name: 'Rossi Mario', ward: 'ONCOLOGIA', bedNumber: '12A' },
   preparation: {
     drug: 'Methotrexate', category: 'CHEMOTHERAPY', code: 'L01BA01',
@@ -953,18 +801,8 @@ async function saveOutputFields() {
 
 // ─── Filtri ──────────────────────────────────────────────────────────────────
 
-async function loadCappeOptions() {
-  const cappe = await apiFetch('/api/cappe');
-  const sel = document.getElementById('f-cappa');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">-- Usa strategia default --</option>' +
-    (cappe ?? []).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-}
-
 async function loadFilters() {
   const filters = await apiFetch('/api/config/filters');
-  const cappe = await apiFetch('/api/cappe');
-  const cappaMap = Object.fromEntries((cappe ?? []).map(c => [c.id, c.name]));
   const container = document.getElementById('filters-list');
   if (!container) return;
   if (!filters || filters.length === 0) {
@@ -976,7 +814,6 @@ async function loadFilters() {
     if (f.conditions.drugCategories?.length) conds.push(`Farmaco: ${f.conditions.drugCategories.join(', ')}`);
     if (f.conditions.ward) conds.push(`Reparto: ${f.conditions.ward}`);
     if (f.conditions.urgency) conds.push(`Urgenza: ${f.conditions.urgency}`);
-    const targetName = f.targetCappaId ? (cappaMap[f.targetCappaId] ?? f.targetCappaId) : 'Strategia default';
     return `
       <div class="filter-row ${f.enabled ? '' : 'disabled'}">
         <div class="filter-info">
@@ -987,8 +824,6 @@ async function loadFilters() {
           </div>
           <div class="filter-detail">
             ${conds.length ? conds.map(c => `<span class="filter-badge">${c}</span>`).join('') : '<span class="filter-badge">Qualsiasi</span>'}
-            &rarr; <strong>${targetName}</strong>
-            ${f.fallbackToDefault ? '&nbsp;(con fallback)' : ''}
           </div>
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
@@ -1005,8 +840,6 @@ async function createFilter() {
   const catsRaw = document.getElementById('f-categories').value.trim();
   const urgency = document.getElementById('f-urgency').value || null;
   const ward = document.getElementById('f-ward').value.trim() || null;
-  const targetCappaId = document.getElementById('f-cappa').value || null;
-  const fallbackToDefault = document.getElementById('f-fallback').value === 'true';
 
   if (!name) return alert('Inserisci un nome per il filtro');
 
@@ -1017,14 +850,13 @@ async function createFilter() {
   };
 
   await apiFetch('/api/config/filters', 'POST', {
-    name, priority, enabled: true, conditions, targetCappaId, fallbackToDefault,
+    name, priority, enabled: true, conditions,
   });
 
   document.getElementById('f-name').value = '';
   document.getElementById('f-categories').value = '';
   document.getElementById('f-ward').value = '';
   document.getElementById('f-urgency').value = '';
-  document.getElementById('f-cappa').value = '';
   loadFilters();
 }
 
@@ -1039,43 +871,190 @@ async function deleteFilter(id) {
   loadFilters();
 }
 
-// ─── Config page ─────────────────────────────────────────────────────────────
+// ─── Categorie Farmaco ───────────────────────────────────────────────────────
 
-let selectedStrategy = null;
+// Cache ATC level2 per i select
+let _atcLevel2Cache = [];
 
-async function loadConfigPage() {
-  const config = await apiFetch('/api/config');
-  selectedStrategy = config?.defaultRoutingStrategy ?? 'load_balance';
-  document.querySelectorAll('.strategy-card').forEach(card => {
-    card.classList.toggle('selected', card.dataset.strategy === selectedStrategy);
-    card.addEventListener('click', () => {
-      selectedStrategy = card.dataset.strategy;
-      document.querySelectorAll('.strategy-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-    });
-  });
-  document.getElementById('config-raw').textContent = JSON.stringify(config, null, 2);
+async function loadCategories() {
+  // Carica categorie e ATC level2 in parallelo
+  const [cats, atcL2] = await Promise.all([
+    apiFetch('/api/drug-categories'),
+    apiFetch('/api/drug-categories/atc/level2'),
+  ]);
+  _atcLevel2Cache = atcL2 ?? [];
+
+  const container = document.getElementById('cat-list');
+  if (!container) return;
+  if (!cats || cats.length === 0) {
+    container.innerHTML = '<div class="loading">Nessuna categoria configurata</div>';
+    return;
+  }
+
+  container.innerHTML = cats.map(cat => {
+    const atcOptions = _atcLevel2Cache
+      .filter(a => !(cat.atcCodes ?? []).some(x => x.code === a.code))
+      .map(a => `<option value="${a.code}">[${a.code}] ${a.nameIt}</option>`)
+      .join('');
+
+    return `
+    <div class="cat-card ${cat.active ? '' : 'inactive'}" id="cat-${cat.code}">
+      <div class="cat-header">
+        <span class="cat-code">${cat.code}</span>
+        <span class="cat-label">${cat.label}</span>
+        <span class="${cat.active ? 'badge-active' : 'badge-inactive'}">${cat.active ? 'Attiva' : 'Disattiva'}</span>
+        <div class="cat-actions">
+          <button class="btn-sm ${cat.active ? 'btn-danger' : 'btn-primary'}"
+            onclick="toggleCategory('${cat.code}', ${!cat.active})">
+            ${cat.active ? 'Disattiva' : 'Attiva'}
+          </button>
+          <button class="btn-sm btn-danger" onclick="deleteCategory('${cat.code}')">Elimina</button>
+        </div>
+      </div>
+      ${cat.description ? `<div class="cat-desc">${cat.description}</div>` : ''}
+
+      <!-- Alias -->
+      <div class="alias-list" id="aliases-${cat.code}">
+        ${(cat.aliases ?? []).map(a => `
+          <span class="alias-tag">
+            ${a.alias}
+            <span class="lang">${a.language}</span>
+            <button class="del-alias" title="Rimuovi alias" onclick="deleteAlias(${a.id})">×</button>
+          </span>`).join('')}
+        ${(cat.aliases ?? []).length === 0 ? '<span style="font-size:.78rem;color:#a0aec0">Nessun alias</span>' : ''}
+      </div>
+      <div class="alias-add-row">
+        <input type="text" id="alias-input-${cat.code}" placeholder="Nuovo alias (es. CITOTOSSICI)"
+          style="text-transform:uppercase"
+          onkeydown="if(event.key==='Enter') addAlias('${cat.code}')">
+        <select id="alias-lang-${cat.code}">
+          <option value="IT">IT</option>
+          <option value="EN">EN</option>
+          <option value="OTHER">Altro</option>
+        </select>
+        <button class="btn-sm btn-primary" onclick="addAlias('${cat.code}')">+ Alias</button>
+      </div>
+
+      <!-- Codici ATC -->
+      <div class="atc-section">
+        <div class="atc-section-title">Codici ATC associati</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.5rem">
+          ${(cat.atcCodes ?? []).map(a => `
+            <span class="atc-tag">
+              <strong>${a.code}</strong>
+              <span>${a.nameIt}</span>
+              <span class="atc-l1">${a.level1Code} · ${a.level1NameIt}</span>
+              <button class="del-atc" title="Rimuovi associazione ATC"
+                onclick="removeAtcMapping(event, ${a.mappingId})">×</button>
+            </span>`).join('')}
+          ${(cat.atcCodes ?? []).length === 0 ? '<span style="font-size:.78rem;color:#a0aec0">Nessun codice ATC associato</span>' : ''}
+        </div>
+        <div class="atc-add-row">
+          <select id="atc-select-${cat.code}">
+            <option value="">— Seleziona codice ATC —</option>
+            ${atcOptions}
+          </select>
+          <button class="btn-sm btn-primary" onclick="addAtcMapping('${cat.code}')">+ ATC</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-async function saveStrategy() {
-  if (!selectedStrategy) return;
-  await apiFetch('/api/config/strategy', 'PUT', { strategy: selectedStrategy });
-  const msg = document.getElementById('strategy-msg');
-  msg.textContent = 'Strategia salvata: ' + selectedStrategy;
-  msg.className = 'msg';
-  setTimeout(() => msg.textContent = '', 3000);
-  loadConfigPage();
+async function createCategory() {
+  const code  = document.getElementById('new-cat-code').value.trim().toUpperCase();
+  const label = document.getElementById('new-cat-label').value.trim();
+  const description = document.getElementById('new-cat-desc').value.trim();
+  if (!code || !label) return alert('Inserisci codice ed etichetta');
+  const result = await apiFetch('/api/drug-categories', 'POST', { code, label, description });
+  if (!result) return;
+  document.getElementById('new-cat-code').value = '';
+  document.getElementById('new-cat-label').value = '';
+  document.getElementById('new-cat-desc').value = '';
+  loadCategories();
+}
+
+async function toggleCategory(code, active) {
+  await apiFetch(`/api/drug-categories/${code}`, 'PUT', { active });
+  loadCategories();
+}
+
+async function deleteCategory(code) {
+  if (!confirm(`Eliminare la categoria "${code}" e tutti i suoi alias?`)) return;
+  await apiFetch(`/api/drug-categories/${code}`, 'DELETE');
+  loadCategories();
+}
+
+async function addAlias(categoryCode) {
+  const input = document.getElementById(`alias-input-${categoryCode}`);
+  const langSel = document.getElementById(`alias-lang-${categoryCode}`);
+  const alias = (input?.value ?? '').trim().toUpperCase();
+  const language = langSel?.value ?? 'IT';
+  if (!alias) return;
+  const result = await apiFetch(`/api/drug-categories/${categoryCode}/aliases`, 'POST', { alias, language });
+  if (!result) return;
+  input.value = '';
+  loadCategories();
+}
+
+async function deleteAlias(id) {
+  await apiFetch(`/api/drug-categories/aliases/${id}`, 'DELETE');
+  loadCategories();
+}
+
+async function addAtcMapping(categoryCode) {
+  const sel = document.getElementById(`atc-select-${categoryCode}`);
+  const atcCode = sel?.value;
+  if (!atcCode) return;
+  await apiFetch(`/api/drug-categories/${categoryCode}/atc`, 'POST', { atcCode });
+  loadCategories();
+}
+
+async function removeAtcMapping(event, mappingId) {
+  event.stopPropagation();
+  if (!mappingId) return;
+  await apiFetch(`/api/drug-categories/atc-mappings/${mappingId}`, 'DELETE');
+  loadCategories();
+}
+
+async function loadAtcHierarchy() {
+  const hierarchy = await apiFetch('/api/drug-categories/atc/hierarchy');
+  const container = document.getElementById('atc-hierarchy');
+  if (!container) return;
+  if (!hierarchy || hierarchy.length === 0) {
+    container.innerHTML = '<div class="loading">Nessun dato ATC disponibile</div>';
+    return;
+  }
+  container.innerHTML = hierarchy.map(g => `
+    <div class="atc-group">
+      <div class="atc-group-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none'">
+        <span class="atc-group-code">${g.code}</span>
+        <span class="atc-group-name">${g.nameIt}</span>
+        <span style="font-size:.75rem;color:#a0aec0;margin-left:.5rem">${g.nameEn}</span>
+        <span style="margin-left:auto;color:#a0aec0;font-size:.8rem">${g.subgroups.length} sottogruppi ▾</span>
+      </div>
+      <div class="atc-group-body" style="display:none">
+        ${g.subgroups.map(s => `
+          <span class="atc-l2-badge" title="${s.nameEn}">
+            <span class="atc-l2-code">${s.code}</span>
+            <span class="atc-l2-it">${s.nameIt}</span>
+          </span>`).join('')}
+        ${g.subgroups.length === 0 ? '<span style="color:#a0aec0;font-size:.78rem">Nessun sottogruppo</span>' : ''}
+      </div>
+    </div>
+  `).join('');
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 async function apiFetch(url, method = 'GET', body = null) {
   try {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
     if (!res.ok) return null;
-    return await res.json();
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   } catch { return null; }
 }
 

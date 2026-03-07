@@ -28,12 +28,6 @@ export class RoutingFilterEntity {
   })
   conditionUrgency: 'STAT' | 'URGENT' | null;
 
-  @Column({ name: 'target_cappa_id', length: 50, nullable: true })
-  targetCappaId: string | null;
-
-  @Column({ name: 'fallback_to_default', default: false })
-  fallbackToDefault: boolean;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

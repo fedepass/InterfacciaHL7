@@ -11,16 +11,15 @@
     <div class="nav-brand">Farmacia HL7</div>
     <div class="nav-links">
       <a href="/">Dashboard</a>
-      <a href="/cappe.html">Cappe</a>
       <a href="/filtri.html" class="active">Filtri</a>
-      <a href="/config.html">Configurazione</a>
       <a href="/output.html">Campi Output</a>
+      <a href="/drug-categories.html">Categorie Farmaco</a>
     </div>
   </nav>
 
   <main>
-    <h1>Gestione Filtri di Routing</h1>
-    <p class="subtitle">I filtri vengono valutati in ordine di priorità (1 = massima). Se nessun filtro corrisponde, si usa la strategia default.</p>
+    <h1>Gestione Filtri</h1>
+    <p class="subtitle">I filtri vengono valutati in ordine di priorità (1 = massima) e permettono di classificare le prescrizioni per categoria, reparto o urgenza.</p>
 
     <section class="panel">
       <div class="panel-header">
@@ -30,7 +29,7 @@
         <div class="form-row">
           <div class="form-group">
             <label>Nome filtro</label>
-            <input type="text" id="f-name" placeholder="Es. Chemioterapici su Cappa 1">
+            <input type="text" id="f-name" placeholder="Es. Chemioterapici urgenti">
           </div>
           <div class="form-group">
             <label>Priorità (1 = massima)</label>
@@ -58,22 +57,6 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Cappa target (vuoto = usa strategia default)</label>
-            <select id="f-cappa">
-              <option value="">-- Usa strategia default --</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Se cappa non disponibile</label>
-            <select id="f-fallback">
-              <option value="true">Usa strategia default</option>
-              <option value="false">Salta filtro</option>
-            </select>
-          </div>
-        </div>
-
         <button onclick="createFilter()" class="btn-primary">Aggiungi Filtro</button>
       </div>
     </section>
@@ -90,6 +73,6 @@
   </main>
 
   <script src="/assets/app.js"></script>
-  <script>loadFilters(); loadCappeOptions();</script>
+  <script>loadFilters();</script>
 </body>
 </html>

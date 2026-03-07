@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { NormalizedPrescription } from '../common/dto/normalized-prescription.dto';
-import { RoutingEngine, RoutingResult } from './routing/routing-engine';
-import { CappeService } from '../cappe/cappe.service';
 
 export interface DispatchResult {
   prescriptionId: string;
@@ -11,21 +9,6 @@ export interface DispatchResult {
   sourceFormat: string;
   prescribedBy?: string;
   notes?: string;
-  assignedCappa: {
-    id: string;
-    name: string;
-    description?: string;
-    type: string;
-    status: string;
-    specializations: string[];
-    queueLength: number;   // elementi in coda al momento del dispatch (incluso quello appena aggiunto)
-    maxQueueSize: number;  // 0 = illimitata
-  };
-  routingInfo: {
-    appliedFilter: string | null;
-    fallbackUsed: boolean;
-    defaultStrategy: string;
-  };
   patient: {
     id: string;
     name: string;
@@ -58,25 +41,7 @@ export interface DispatchResult {
 
 @Injectable()
 export class DispatcherService {
-  constructor(
-    private readonly routingEngine: RoutingEngine,
-    private readonly cappeService: CappeService,
-  ) {}
-
   dispatch(prescription: NormalizedPrescription): DispatchResult {
-    const routing: RoutingResult = this.routingEngine.route(prescription);
-
-    // Aggiunge alla coda della cappa selezionata
-    this.cappeService.addToQueue(routing.cappaId, {
-      prescriptionId: prescription.id,
-      patientName: prescription.patient.name,
-      drugName: prescription.drug.name,
-      priority: prescription.priority,
-    });
-
-    // Legge i dati aggiornati della cappa (inclusa la nuova lunghezza coda)
-    const cappa = this.cappeService.findOne(routing.cappaId);
-
     return {
       prescriptionId: prescription.id,
       status: 'DISPATCHED',
@@ -85,21 +50,6 @@ export class DispatcherService {
       sourceFormat: prescription.sourceFormat,
       prescribedBy: prescription.prescribedBy,
       notes: prescription.notes,
-      assignedCappa: {
-        id: cappa.id,
-        name: cappa.name,
-        description: cappa.description,
-        type: cappa.type ?? 'ALTRO',
-        status: cappa.status ?? 'ONLINE',
-        specializations: cappa.specializations ?? [],
-        queueLength: this.cappeService.getQueueLength(cappa.id),
-        maxQueueSize: cappa.maxQueueSize ?? 0,
-      },
-      routingInfo: {
-        appliedFilter: routing.appliedFilter,
-        fallbackUsed: routing.fallbackUsed,
-        defaultStrategy: routing.defaultStrategy,
-      },
       patient: {
         id: prescription.patient.id,
         name: prescription.patient.name,

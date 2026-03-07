@@ -5,10 +5,10 @@ import { json, text } from 'express';
 
 import { DatabaseModule } from './database/database.module';
 import { ConfigModule } from './config/config.module';
-import { CappeModule } from './cappe/cappe.module';
 import { ParsersModule } from './parsers/parsers.module';
 import { DispatcherModule } from './dispatcher/dispatcher.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
+import { DrugCategoryModule } from './drug-categories/drug-category.module';
 
 @Module({
   imports: [
@@ -19,7 +19,7 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
     }),
     DatabaseModule,
     ConfigModule,
-    CappeModule,
+    DrugCategoryModule,
     ParsersModule,
     DispatcherModule,
     PrescriptionsModule,

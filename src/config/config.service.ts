@@ -2,12 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { CappaEntity } from '../database/entities/cappa.entity';
-import { CappaSpecEntity } from '../database/entities/cappa-spec.entity';
 import { RoutingFilterEntity } from '../database/entities/routing-filter.entity';
 import { AppConfigEntity } from '../database/entities/app-config.entity';
-
-export type DefaultStrategy = 'load_balance' | 'drug_type' | 'urgency_first' | 'ward';
 
 export interface FilterConditions {
   drugCategories?: string[] | null;
@@ -21,43 +17,15 @@ export interface RoutingFilter {
   enabled: boolean;
   priority: number;
   conditions: FilterConditions;
-  targetCappaId: string | null;
-  fallbackToDefault: boolean;
-}
-
-export type CappaType =
-  | 'FLUSSO_LAMINARE_VERTICALE'
-  | 'FLUSSO_LAMINARE_ORIZZONTALE'
-  | 'ISOLATORE'
-  | 'BSC'
-  | 'CHIMICA'
-  | 'DISPENSAZIONE'
-  | 'ALTRO';
-
-export type CappaStatus = 'ONLINE' | 'OFFLINE' | 'MANUTENZIONE' | 'GUASTO';
-
-export interface CappaConfig {
-  id: string;
-  name: string;
-  description?: string;
-  type: CappaType;
-  active: boolean;
-  status: CappaStatus;
-  maxQueueSize: number;
-  specializations: string[];
 }
 
 export interface AppConfig {
-  defaultRoutingStrategy: DefaultStrategy;
   filters: RoutingFilter[];
-  cappe: CappaConfig[];
   outputFields: string[] | null;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
-  defaultRoutingStrategy: 'drug_type',
   filters: [],
-  cappe: [],
   outputFields: null,
 };
 
@@ -66,10 +34,6 @@ export class ConfigService implements OnModuleInit {
   private config: AppConfig = { ...DEFAULT_CONFIG };
 
   constructor(
-    @InjectRepository(CappaEntity)
-    private readonly cappaRepo: Repository<CappaEntity>,
-    @InjectRepository(CappaSpecEntity)
-    private readonly cappaSpecRepo: Repository<CappaSpecEntity>,
     @InjectRepository(RoutingFilterEntity)
     private readonly filterRepo: Repository<RoutingFilterEntity>,
     @InjectRepository(AppConfigEntity)
@@ -86,50 +50,29 @@ export class ConfigService implements OnModuleInit {
   }
 
   private async loadFromDb() {
-    const [cappeEntities, filterEntities, appConfigEntity] = await Promise.all([
-      this.cappaRepo.find({ relations: ['specs'] }),
+    const [filterEntities, appConfigEntity] = await Promise.all([
       this.filterRepo.find({ order: { priority: 'ASC' } }),
       this.appConfigRepo.findOne({ where: { id: 1 } }),
     ]);
 
-    // Inizializza app_config se non esiste
     if (!appConfigEntity) {
-      await this.appConfigRepo.save({ id: 1, defaultRoutingStrategy: DEFAULT_CONFIG.defaultRoutingStrategy, outputFields: null });
+      await this.appConfigRepo.save({ id: 1, outputFields: null });
     }
 
     this.config = {
-      defaultRoutingStrategy: (appConfigEntity?.defaultRoutingStrategy ?? DEFAULT_CONFIG.defaultRoutingStrategy) as DefaultStrategy,
       outputFields: appConfigEntity?.outputFields ?? null,
-      cappe: cappeEntities.map((e) => this.entityToCappaConfig(e)),
       filters: filterEntities.map((e) => this.entityToFilter(e)),
     };
   }
 
-  // ── Lettura (sincrona, dalla cache) ──────────────────────────
-
-  getConfig(): AppConfig {
-    return this.config;
-  }
+  // ── Lettura ────────────────────────────────────────────────────
 
   getFilters(): RoutingFilter[] {
     return [...this.config.filters].sort((a, b) => a.priority - b.priority);
   }
 
-  getCappe(): CappaConfig[] {
-    return this.config.cappe;
-  }
-
   getOutputFields(): string[] | null {
     return this.config.outputFields ?? null;
-  }
-
-  // ── Strategia ───────────────────────────────────────────────
-
-  setDefaultStrategy(strategy: DefaultStrategy) {
-    this.config.defaultRoutingStrategy = strategy;
-    this.appConfigRepo
-      .save({ id: 1, defaultRoutingStrategy: strategy, outputFields: this.config.outputFields })
-      .catch((e) => console.error('DB error setDefaultStrategy:', e.message));
   }
 
   // ── Output fields ────────────────────────────────────────────
@@ -137,7 +80,7 @@ export class ConfigService implements OnModuleInit {
   setOutputFields(fields: string[] | null) {
     this.config.outputFields = fields;
     this.appConfigRepo
-      .save({ id: 1, defaultRoutingStrategy: this.config.defaultRoutingStrategy, outputFields: fields })
+      .save({ id: 1, outputFields: fields })
       .catch((e) => console.error('DB error setOutputFields:', e.message));
   }
 
@@ -175,28 +118,6 @@ export class ConfigService implements OnModuleInit {
     return false;
   }
 
-  // ── Cappe ────────────────────────────────────────────────────
-
-  addCappa(cappa: CappaConfig) {
-    this.config.cappe.push(cappa);
-    this.persistCappa(cappa).catch((e) => console.error('DB error addCappa:', e.message));
-  }
-
-  updateCappa(id: string, cappa: CappaConfig) {
-    const idx = this.config.cappe.findIndex((c) => c.id === id);
-    if (idx !== -1) {
-      this.config.cappe[idx] = cappa;
-      this.persistCappa(cappa).catch((e) => console.error('DB error updateCappa:', e.message));
-    }
-  }
-
-  removeCappa(id: string) {
-    this.config.cappe = this.config.cappe.filter((c) => c.id !== id);
-    this.cappaRepo
-      .delete(id)
-      .catch((e) => console.error('DB error removeCappa:', e.message));
-  }
-
   // ── Output field filtering ───────────────────────────────────
 
   applyOutputFilter(result: Record<string, any>): Record<string, any> {
@@ -225,38 +146,6 @@ export class ConfigService implements OnModuleInit {
 
   // ── Conversioni entity ↔ interfacce ─────────────────────────
 
-  private entityToCappaConfig(e: CappaEntity): CappaConfig {
-    return {
-      id: e.id,
-      name: e.name,
-      description: e.description ?? undefined,
-      type: e.type as CappaType,
-      active: e.active,
-      status: e.status as CappaStatus,
-      maxQueueSize: e.maxQueueSize,
-      specializations: e.specs?.map((s) => s.specialization) ?? [],
-    };
-  }
-
-  private async persistCappa(cappa: CappaConfig): Promise<void> {
-    await this.cappaRepo.save({
-      id: cappa.id,
-      name: cappa.name,
-      description: cappa.description ?? null,
-      type: cappa.type,
-      active: cappa.active,
-      status: cappa.status,
-      maxQueueSize: cappa.maxQueueSize,
-    });
-    // Aggiorna specializzazioni: elimina le vecchie e inserisce le nuove
-    await this.cappaSpecRepo.delete({ cappaId: cappa.id });
-    if (cappa.specializations.length > 0) {
-      await this.cappaSpecRepo.insert(
-        cappa.specializations.map((s) => ({ cappaId: cappa.id, specialization: s })),
-      );
-    }
-  }
-
   private entityToFilter(e: RoutingFilterEntity): RoutingFilter {
     return {
       id: e.id,
@@ -268,8 +157,6 @@ export class ConfigService implements OnModuleInit {
         ward: e.conditionWard ?? null,
         urgency: e.conditionUrgency ?? null,
       },
-      targetCappaId: e.targetCappaId ?? null,
-      fallbackToDefault: e.fallbackToDefault,
     };
   }
 
@@ -282,8 +169,6 @@ export class ConfigService implements OnModuleInit {
       conditionDrugCats: f.conditions.drugCategories ?? null,
       conditionWard: f.conditions.ward ?? null,
       conditionUrgency: f.conditions.urgency ?? null,
-      targetCappaId: f.targetCappaId ?? null,
-      fallbackToDefault: f.fallbackToDefault,
     };
   }
 }

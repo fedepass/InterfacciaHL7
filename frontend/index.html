@@ -11,23 +11,18 @@
     <div class="nav-brand">Farmacia HL7</div>
     <div class="nav-links">
       <a href="/" class="active">Dashboard</a>
-      <a href="/cappe.html">Cappe</a>
       <a href="/filtri.html">Filtri</a>
-      <a href="/config.html">Configurazione</a>
       <a href="/output.html">Campi Output</a>
+      <a href="/drug-categories.html">Categorie Farmaco</a>
     </div>
   </nav>
 
   <main>
     <h1>Dashboard</h1>
 
-    <section class="cards" id="cappe-cards">
-      <div class="loading">Caricamento cappe...</div>
-    </section>
-
     <section class="panel">
       <div class="panel-header">
-        <h2>Ultime Prescrizioni</h2>
+        <h2>Prescrizioni in Attesa <span id="history-count" style="font-size:.85rem;font-weight:400;color:#718096"></span></h2>
         <button onclick="loadHistory()">Aggiorna</button>
       </div>
       <table id="history-table">
@@ -35,13 +30,17 @@
           <tr>
             <th>ID</th><th>Priorità</th><th>Paziente</th><th>Reparto</th>
             <th>Farmaco</th><th>Dosaggio</th><th>Contenitore Finale</th>
-            <th>Cappa Assegnata</th><th>Ricevuta</th>
+            <th>Ricevuta</th>
           </tr>
         </thead>
         <tbody id="history-body">
-          <tr><td colspan="9" class="empty">Nessuna prescrizione ricevuta</td></tr>
+          <tr><td colspan="8" class="empty">Nessuna prescrizione in attesa</td></tr>
         </tbody>
       </table>
+      <div id="history-pagination" style="display:none;padding:.75rem 1rem;border-top:1px solid #e2e8f0;align-items:center;justify-content:space-between;gap:.5rem">
+        <span id="history-pag-info" style="font-size:.85rem;color:#718096"></span>
+        <button id="history-load-more" onclick="loadMoreHistory()" style="font-size:.85rem">Carica altre</button>
+      </div>
     </section>
 
     <section class="panel">
@@ -67,10 +66,9 @@
 
   <script src="/assets/app.js"></script>
   <script>
-    loadCappe();
     loadHistory();
     loadSample();
-    setInterval(() => { loadCappe(); loadHistory(); }, 10000);
+    setInterval(() => { loadHistory(); }, 10000);
   </script>
 </body>
 </html>
