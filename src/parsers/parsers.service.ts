@@ -16,16 +16,43 @@ export class ParsersService {
 
   parse(raw: string): NormalizedPrescription {
     const format = this.detectFormat(raw.trim());
+    let result: NormalizedPrescription;
     switch (format) {
-      case 'HL7V2':    return this.hl7v2Parser.parse(raw);
-      case 'FHIR_JSON': return this.fhirJsonParser.parse(raw);
-      case 'FHIR_XML':  return this.fhirXmlParser.parse(raw);
-      case 'CDA_PRF':   return this.cdaPrfParser.parse(raw);
+      case 'HL7V2':     result = this.hl7v2Parser.parse(raw);     break;
+      case 'FHIR_JSON': result = this.fhirJsonParser.parse(raw);  break;
+      case 'FHIR_XML':  result = this.fhirXmlParser.parse(raw);   break;
+      case 'CDA_PRF':   result = this.cdaPrfParser.parse(raw);    break;
       default:
         throw new BadRequestException(
           'Formato non riconosciuto. Supportati: HL7 v2, FHIR JSON, FHIR XML, CDA-PrF',
         );
     }
+    return this.sanitize(result);
+  }
+
+  /**
+   * Rimuove dati di volume/solvente clinicamente impossibili.
+   * Una siringa (SC, IM o route "SIRINGA") non può contenere più di 60 ml:
+   * se il volume parsificato supera tale soglia, quasi certamente deriva da
+   * un errore nel messaggio sorgente (es. copiato da una ricetta IV).
+   */
+  private sanitize(p: NormalizedPrescription): NormalizedPrescription {
+    const MAX_SYRINGE_ML = 60;
+    const route = (p.drug.route ?? '').toUpperCase();
+    const isSyringeRoute =
+      route === 'SC' ||
+      route === 'IM' ||
+      route.includes('SIRING'); // copre SIRINGA, siringa, ecc.
+
+    if (isSyringeRoute && (p.drug.volumeValue ?? 0) > MAX_SYRINGE_ML) {
+      p.drug.volume            = undefined;
+      p.drug.volumeValue       = undefined;
+      p.drug.volumeUnit        = undefined;
+      p.drug.solvent           = undefined;
+      p.drug.infusionRate      = undefined;
+      p.drug.finalConcentration = undefined;
+    }
+    return p;
   }
 
   detectFormat(raw: string): 'HL7V2' | 'FHIR_JSON' | 'FHIR_XML' | 'CDA_PRF' | 'UNKNOWN' {

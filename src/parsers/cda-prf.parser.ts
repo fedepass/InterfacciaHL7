@@ -162,12 +162,21 @@ export class CdaPrfParser {
     if (pc === 'R') return 'ROUTINE';
 
     // 2. Qualifier TP sul codice documento (convenzione CDA-PrF italiana)
+    // Cercato prima direttamente su cd.code, poi nelle translation (entrambe le strutture sono valide)
+    const allQualifierSources: any[] = [];
+    if (cd.code?.qualifier) {
+      // Struttura standard: <code><qualifier>...</qualifier></code>
+      const directQuals = Array.isArray(cd.code.qualifier) ? cd.code.qualifier : [cd.code.qualifier];
+      allQualifierSources.push(...directQuals);
+    }
     const translations: any[] = Array.isArray(cd.code?.translation) ? cd.code.translation : cd.code?.translation ? [cd.code.translation] : [];
     for (const tr of translations) {
-      const qualifiers: any[] = Array.isArray(tr.qualifier) ? tr.qualifier : tr.qualifier ? [tr.qualifier] : [];
-      const tpQual = qualifiers.find(q => this.attr(q.name, 'code') === 'TP');
-      if (tpQual) {
-        const tpVal = this.attr(tpQual.value, 'code').toUpperCase();
+      const trQuals: any[] = Array.isArray(tr.qualifier) ? tr.qualifier : tr.qualifier ? [tr.qualifier] : [];
+      allQualifierSources.push(...trQuals);
+    }
+    for (const qual of allQualifierSources) {
+      if (this.attr(qual.name, 'code') === 'TP') {
+        const tpVal = this.attr(qual.value, 'code').toUpperCase();
         if (tpVal === 'ST' || tpVal === 'A') return 'STAT';
         if (tpVal === 'UE') return 'URGENT';
       }

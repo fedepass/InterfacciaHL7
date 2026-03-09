@@ -193,8 +193,9 @@ export class Hl7v2Parser {
       solvent = this.extractSolventFromNotes(get('NTE', 3));
     }
     // Fallback volume da NTE se non trovato altrove (es. "flacone 250ml")
+    // Il negative lookahead (?!\s*\/) esclude i pattern di velocità (es. "100 ml/h")
     if (!volumeValue) {
-      const noteVolume = (get('NTE', 3) || '').match(/(\d+)\s*(ml|mL)/);
+      const noteVolume = (get('NTE', 3) || '').match(/(\d+)\s*ml(?!\s*\/)/i);
       if (noteVolume) { volumeValue = parseInt(noteVolume[1]); volumeUnit = 'ml'; }
     }
 
@@ -243,7 +244,7 @@ export class Hl7v2Parser {
   // Restituisce true se la stringa è un'unità farmaceutica standard
   private isPharmUnit(val: string): boolean {
     if (!val) return false;
-    return /^(mg|g|mcg|µg|ug|ml|l|ui|iu|mmol|meq|mg\/ml|mg\/kg|unità|unit|units|cp|cpr|cps|fiale?|gtt|drops?)$/i.test(val.trim());
+    return /^(mg|g|mcg|µg|ug|ml|l|ui|iu|mmol|meq|mg\/ml|mg\/kg|unità|unit|units|cp|cpr|cps|fial[ae]|gtt|drops?)$/i.test(val.trim());
   }
 
   private calcConcentration(

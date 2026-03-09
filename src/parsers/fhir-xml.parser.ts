@@ -76,9 +76,15 @@ export class FhirXmlParser {
       timing: d.timing ? {
         code: d.timing.code ? { text: val(d.timing.code.text), coding: coding(d.timing.code) } : undefined,
       } : undefined,
-      doseAndRate: d.doseQuantity ? [{
-        doseQuantity: { value: parseFloat(val(d.doseQuantity.value)), unit: val(d.doseQuantity.unit) },
-      }] : [],
+      // doseQuantity può trovarsi dentro <doseAndRate> (FHIR R4 standard)
+      // oppure direttamente su <dosageInstruction> (alcune implementazioni non conformi)
+      doseAndRate: (() => {
+        const dqNode = d.doseAndRate?.doseQuantity
+          ?? (Array.isArray(d.doseAndRate) ? d.doseAndRate[0]?.doseQuantity : undefined)
+          ?? d.doseQuantity;
+        if (!dqNode) return [];
+        return [{ doseQuantity: { value: parseFloat(val(dqNode.value)), unit: val(dqNode.unit) } }];
+      })(),
       rateQuantity: d.rateQuantity ? {
         value: parseFloat(val(d.rateQuantity.value)),
         unit: val(d.rateQuantity.unit),

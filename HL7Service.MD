@@ -1,8 +1,8 @@
 # Product Requirements Document
 # Servizio HL7 - Dispatcher Preparazioni IV in Farmacia Ospedaliera
 
-**Versione**: 2.0
-**Data**: 2026-03-07
+**Versione**: 2.1
+**Data**: 2026-03-09
 **Stato**: Implementato
 
 ---
@@ -22,6 +22,7 @@
 | 1.8 | 2026-03-05 | Persistenza completa su MySQL 8 via TypeORM (sostituisce `data/config.json` e le strutture in-memory). Aggiunto container `hl7_mysql` nel Docker Compose. Nuovo schema database strutturato in 5 sezioni. Tutte le tabelle hanno `id` INT AUTO_INCREMENT come chiave primaria; le chiavi naturali (`code`, `field_path`) promosse a UNIQUE. Aggiunto file `.env` per configurazione connessione DB in sviluppo locale. |
 | 1.9 | 2026-03-05 | Ordinamento coda configurabile per cappa: nuovo attributo `queueSortOrder` (PRIORITY \| ARRIVAL_ASC \| ARRIVAL_DESC \| WARD). Nuova colonna `patient_ward` in `cappa_queue` per supporto sort per reparto. Dashboard: tabella prescrizioni mostra solo PENDING con paginazione a blocchi da 10 ("Carica altre"). UI cappe: select ordinamento nel form creazione e nel modal modifica. |
 | 2.0 | 2026-03-07 | Rimozione del sistema cappe e del routing engine. Il servizio diventa un dispatcher puro: riceve, parsifica, normalizza e restituisce il JSON strutturato senza smistamento su postazioni fisiche. Rimossi: tabelle `cappe`, `cappa_specializations`, `cappa_queue`, `ana_cappa_*`; colonne `assigned_cappa_id`, `assigned_cappa`, `routing_info` da `prescriptions`; colonne `target_cappa_id`, `fallback_to_default` da `routing_filters`; colonna `default_routing_strategy` da `app_config`. Rimossa pagina Web UI `config.html`. `POST /api/prescriptions` ora restituisce `HTTP 201` con body JSON completo dei campi decodificati (filtro output applicato). Dashboard mostra solo prescrizioni `PENDING` non ancora consegnate via API. La pagina Drug Categories sostituisce Cappe nella navigazione. |
+| 2.1 | 2026-03-09 | Sanitizzazione post-parsing: nuovo metodo `sanitize()` in `ParsersService` rimuove dati volume/solvente clinicamente impossibili per vie di somministrazione a siringa (SC, IM, SIRINGA) quando `volumeValue > 60 ml`. Fix HL7 v2: regex fallback volume da NTE aggiornata con negative lookahead `(?!\s*\/)` per non interpretare erroneamente le velocità di infusione (es. `100 ml/h`) come volume; regex `isPharmUnit` corretta (`fial[ae]` per riconoscere sia "fiale" che "fiala"). Fix FHIR XML: `doseQuantity` ora letto sia dalla struttura R4 standard (dentro `<doseAndRate>`) sia da implementazioni non conformi con `<doseQuantity>` direttamente su `<dosageInstruction>`; supporto `doseAndRate` come array. Fix CDA-PrF: qualifier TP per priorità cercato sia direttamente su `cd.code.qualifier` (struttura standard) sia in `cd.code.translation[].qualifier` (struttura alternativa), entrambe ora supportate. |
 
 ---
 
@@ -202,7 +203,9 @@ Il servizio rileva automaticamente il formato del payload (ordine di valutazione
 
 ### 4.2 Normalizzazione Interna
 
-Indipendentemente dal formato sorgente, tutti i dati vengono convertiti nella struttura interna unificata `NormalizedPrescription`:
+Indipendentemente dal formato sorgente, tutti i dati vengono convertiti nella struttura interna unificata `NormalizedPrescription`. Dopo il parsing, `ParsersService` applica un passo di **sanitizzazione** che rimuove dati clinicamente impossibili:
+
+- **Syringe sanitizer**: se la via di somministrazione è `SC`, `IM` o contiene `SIRINGA` e il volume parsificato supera **60 ml**, i campi `volume`, `volumeValue`, `volumeUnit`, `solvent`, `infusionRate` e `finalConcentration` vengono azzerati (un volume così elevato è quasi certamente un errore di copia dal messaggio sorgente).
 
 ```
 NormalizedPrescription {
