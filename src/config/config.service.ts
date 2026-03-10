@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { RoutingFilterEntity } from '../database/entities/routing-filter.entity';
 import { AppConfigEntity } from '../database/entities/app-config.entity';
+import { AnaOutputFieldEntity } from '../database/entities/ana-output-field.entity';
+import { AppConfigOutputFieldEntity } from '../database/entities/app-config-output-field.entity';
 
 export interface FilterConditions {
   drugCategories?: string[] | null;
@@ -19,6 +21,15 @@ export interface RoutingFilter {
   conditions: FilterConditions;
 }
 
+export interface OutputFieldDef {
+  fieldPath: string;
+  label: string;
+  groupName: string;
+  description: string | null;
+  required: boolean;
+  sortOrder: number;
+}
+
 export interface AppConfig {
   filters: RoutingFilter[];
   outputFields: string[] | null;
@@ -32,12 +43,17 @@ const DEFAULT_CONFIG: AppConfig = {
 @Injectable()
 export class ConfigService implements OnModuleInit {
   private config: AppConfig = { ...DEFAULT_CONFIG };
+  private catalog: OutputFieldDef[] = [];
 
   constructor(
     @InjectRepository(RoutingFilterEntity)
     private readonly filterRepo: Repository<RoutingFilterEntity>,
     @InjectRepository(AppConfigEntity)
     private readonly appConfigRepo: Repository<AppConfigEntity>,
+    @InjectRepository(AnaOutputFieldEntity)
+    private readonly catalogRepo: Repository<AnaOutputFieldEntity>,
+    @InjectRepository(AppConfigOutputFieldEntity)
+    private readonly enabledFieldsRepo: Repository<AppConfigOutputFieldEntity>,
   ) {}
 
   async onModuleInit() {
@@ -50,22 +66,50 @@ export class ConfigService implements OnModuleInit {
   }
 
   private async loadFromDb() {
-    const [filterEntities, appConfigEntity] = await Promise.all([
+    const [filterEntities, appConfigEntity, catalogEntities, enabledEntities] = await Promise.all([
       this.filterRepo.find({ order: { priority: 'ASC' } }),
       this.appConfigRepo.findOne({ where: { id: 1 } }),
+      this.catalogRepo.find({ order: { sortOrder: 'ASC' } }),
+      this.enabledFieldsRepo.find({ order: { sortOrder: 'ASC' } }),
     ]);
 
     if (!appConfigEntity) {
       await this.appConfigRepo.save({ id: 1, outputFields: null });
     }
 
+    this.catalog = catalogEntities.map((e) => ({
+      fieldPath: e.fieldPath,
+      label: e.label,
+      groupName: e.groupName,
+      description: e.description,
+      required: e.required,
+      sortOrder: e.sortOrder,
+    }));
+
+    // Enabled fields: usa app_config_output_fields se popolata,
+    // altrimenti fallback a app_config.output_fields (JSON legacy)
+    let outputFields: string[] | null = null;
+    if (enabledEntities.length > 0) {
+      outputFields = enabledEntities.map((e) => e.fieldPath);
+    } else if (appConfigEntity?.outputFields?.length) {
+      outputFields = appConfigEntity.outputFields;
+      // Migra nella nuova tabella relazionale
+      await this._persistEnabledFields(outputFields);
+    }
+
     this.config = {
-      outputFields: appConfigEntity?.outputFields ?? null,
+      outputFields,
       filters: filterEntities.map((e) => this.entityToFilter(e)),
     };
   }
 
-  // ── Lettura ────────────────────────────────────────────────────
+  // ── Catalogo ─────────────────────────────────────────────────────────────
+
+  getCatalog(): OutputFieldDef[] {
+    return this.catalog;
+  }
+
+  // ── Lettura ────────────────────────────────────────────────────────────────
 
   getFilters(): RoutingFilter[] {
     return [...this.config.filters].sort((a, b) => a.priority - b.priority);
@@ -75,16 +119,31 @@ export class ConfigService implements OnModuleInit {
     return this.config.outputFields ?? null;
   }
 
-  // ── Output fields ────────────────────────────────────────────
+  // ── Output fields ──────────────────────────────────────────────────────────
 
-  setOutputFields(fields: string[] | null) {
+  async setOutputFields(fields: string[] | null): Promise<void> {
     this.config.outputFields = fields;
+    await this._persistEnabledFields(fields);
+    // Aggiorna anche il JSON legacy per retrocompatibilità
     this.appConfigRepo
       .save({ id: 1, outputFields: fields })
-      .catch((e) => console.error('DB error setOutputFields:', e.message));
+      .catch((e) => console.error('DB error setOutputFields legacy:', e.message));
   }
 
-  // ── Filtri ───────────────────────────────────────────────────
+  private async _persistEnabledFields(fields: string[] | null): Promise<void> {
+    await this.enabledFieldsRepo.clear();
+    if (fields && fields.length > 0) {
+      const entities = fields.map((fp, idx) => {
+        const e = new AppConfigOutputFieldEntity();
+        e.fieldPath = fp;
+        e.sortOrder = idx;
+        return e;
+      });
+      await this.enabledFieldsRepo.save(entities);
+    }
+  }
+
+  // ── Filtri ─────────────────────────────────────────────────────────────────
 
   addFilter(dto: Omit<RoutingFilter, 'id'>): RoutingFilter {
     const filter: RoutingFilter = { id: uuidv4(), ...dto };
@@ -118,7 +177,7 @@ export class ConfigService implements OnModuleInit {
     return false;
   }
 
-  // ── Output field filtering ───────────────────────────────────
+  // ── Output field filtering ─────────────────────────────────────────────────
 
   applyOutputFilter(result: Record<string, any>): Record<string, any> {
     const fields = this.getOutputFields();
@@ -144,7 +203,7 @@ export class ConfigService implements OnModuleInit {
     return out;
   }
 
-  // ── Conversioni entity ↔ interfacce ─────────────────────────
+  // ── Conversioni entity ↔ interfacce ───────────────────────────────────────
 
   private entityToFilter(e: RoutingFilterEntity): RoutingFilter {
     return {

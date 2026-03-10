@@ -580,73 +580,15 @@ async function sendTest() {
 
 // ─── Output Fields Configuration ─────────────────────────────────────────────
 
-const OUTPUT_FIELD_DEFS = [
-  // ── Generale ──────────────────────────────────────────────────────────────
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'prescriptionId',  label: 'ID Prescrizione',     desc: 'Identificatore UUID generato dal servizio',            required: true },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'status',          label: 'Stato dispatch',       desc: 'Sempre "DISPATCHED" se l\'elaborazione è riuscita' },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'priority',        label: 'Priorità',             desc: 'STAT | URGENT | ROUTINE' },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'sourceFormat',    label: 'Formato sorgente',     desc: 'Protocollo in ingresso: HL7V2, FHIR_JSON, FHIR_XML, CDA_PRF' },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'prescribedBy',    label: 'Medico prescrittore',  desc: 'Nome del medico che ha emesso la prescrizione' },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'notes',           label: 'Note cliniche',        desc: 'Note o istruzioni aggiuntive allegate alla prescrizione' },
-  { group: 'Generale', groupKey: 'root', icon: '📋',
-    path: 'deliveryStatus',  label: 'Stato consegna API',   desc: 'SENT = risposta HTTP restituita al sistema terzo; PENDING = non ancora consegnata' },
+// Catalogo campi caricato dal DB via API (popolato da loadOutputPage)
+let OUTPUT_FIELD_DEFS = [];
 
-  // ── Paziente ──────────────────────────────────────────────────────────────
-  { group: 'Paziente', groupKey: 'patient', icon: '👤',
-    path: 'patient.id',         label: 'ID paziente',     desc: 'Identificatore paziente dal sistema sorgente' },
-  { group: 'Paziente', groupKey: 'patient', icon: '👤',
-    path: 'patient.name',       label: 'Nome paziente',   desc: 'Nome e cognome del paziente' },
-  { group: 'Paziente', groupKey: 'patient', icon: '👤',
-    path: 'patient.ward',       label: 'Reparto',         desc: 'Reparto di ricovero o reparto richiedente' },
-  { group: 'Paziente', groupKey: 'patient', icon: '👤',
-    path: 'patient.bedNumber',  label: 'Numero letto',    desc: 'Numero letto o stanza del paziente' },
-
-  // ── Preparazione farmaco ──────────────────────────────────────────────────
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.drug',                label: 'Nome farmaco',            desc: 'Denominazione del principio attivo' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.category',            label: 'Categoria',               desc: 'Categoria terapeutica (CHEMOTHERAPY, ANTIBIOTIC, ecc.)' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.code',                label: 'Codice ATC/AIC',          desc: 'Codice identificativo del farmaco (es. L01BA01)' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.dosage',              label: 'Dosaggio',                desc: 'Dosaggio formattato (es. "75 mg")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.dosageValue',         label: 'Valore dosaggio',         desc: 'Valore numerico del dosaggio' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.dosageUnit',          label: 'Unità dosaggio',          desc: 'Unità di misura del dosaggio (es. "mg", "UI")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.route',               label: 'Via di somministrazione', desc: 'IV, IM, PO, SC, ecc.' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.solvent',             label: 'Solvente/diluente',       desc: 'Solvente (es. "NaCl 0.9%", "Glucosio 5%")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.volume',              label: 'Volume',                  desc: 'Volume del contenitore finale formattato (es. "250 ml")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.volumeValue',         label: 'Valore volume',           desc: 'Valore numerico del volume' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.volumeUnit',          label: 'Unità volume',            desc: 'Unità del volume (es. "ml")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.infusionRate',        label: 'Velocità infusione',      desc: 'Velocità di infusione (es. "100 ml/h")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.finalConcentration',  label: 'Concentrazione finale',   desc: 'Concentrazione calcolata: dosaggio/volume (es. "0.3 mg/ml")' },
-  { group: 'Preparazione Farmaco', groupKey: 'preparation', icon: '💊',
-    path: 'preparation.frequency',           label: 'Frequenza',               desc: 'Frequenza di somministrazione (es. "QD", "BID", "Once")' },
-
-  // ── Timestamp ─────────────────────────────────────────────────────────────
-  { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
-    path: 'timestamps.received',   label: 'Data ricezione',  desc: 'Data/ora di ricezione della prescrizione (ISO 8601)' },
-  { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
-    path: 'timestamps.dispatched', label: 'Data dispatch',   desc: 'Data/ora di elaborazione della prescrizione (ISO 8601)' },
-  { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
-    path: 'timestamps.requiredBy', label: 'Data richiesta',  desc: 'Data/ora entro cui la preparazione è necessaria (se presente)' },
-  { group: 'Timestamp', groupKey: 'timestamps', icon: '🕐',
-    path: 'timestamps.sentToApi',  label: 'Data invio API',  desc: 'Data/ora in cui la risposta HTTP è stata consegnata al sistema terzo (ISO 8601)' },
-];
+const _GROUP_ICONS = {
+  'Generale': '📋',
+  'Paziente': '👤',
+  'Preparazione Farmaco': '💊',
+  'Timestamp': '🕐',
+};
 
 const _SAMPLE_OUTPUT = {
   prescriptionId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
@@ -733,13 +675,25 @@ function selectNone() {
 }
 
 async function loadOutputPage() {
-  const cfg = await apiFetch('/api/config/output-fields');
+  const [catalogRaw, cfg] = await Promise.all([
+    apiFetch('/api/config/output-fields/catalog'),
+    apiFetch('/api/config/output-fields'),
+  ]);
   const enabledFields = cfg?.enabledFields ?? null; // null = tutti abilitati
 
-  // Raggruppa le definizioni per group
+  // Mappa il catalogo DB nel formato usato dalla UI
+  OUTPUT_FIELD_DEFS = (catalogRaw ?? []).map(f => ({
+    path: f.fieldPath,
+    label: f.label,
+    group: f.groupName,
+    desc: f.description ?? '',
+    required: !!f.required,
+  }));
+
+  // Raggruppa per group
   const groups = {};
   for (const f of OUTPUT_FIELD_DEFS) {
-    if (!groups[f.group]) groups[f.group] = { icon: f.icon, fields: [] };
+    if (!groups[f.group]) groups[f.group] = { icon: _GROUP_ICONS[f.group] ?? '📄', fields: [] };
     groups[f.group].fields.push(f);
   }
 

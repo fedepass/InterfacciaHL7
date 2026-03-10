@@ -29,14 +29,19 @@ export class ConfigController {
     return { message: `Filtro ${id} rimosso` };
   }
 
+  @Get('output-fields/catalog')
+  getCatalog() {
+    return this.configService.getCatalog();
+  }
+
   @Get('output-fields')
   getOutputFields() {
     return { enabledFields: this.configService.getOutputFields() };
   }
 
   @Put('output-fields')
-  setOutputFields(@Body() body: { enabledFields: string[] | null }) {
-    this.configService.setOutputFields(body.enabledFields ?? null);
+  async setOutputFields(@Body() body: { enabledFields: string[] | null }) {
+    await this.configService.setOutputFields(body.enabledFields ?? null);
     return { enabledFields: this.configService.getOutputFields() };
   }
 }
