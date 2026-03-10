@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import { RoutingFilterEntity } from './entities/routing-filter.entity';
 import { AppConfigEntity } from './entities/app-config.entity';
 import { PrescriptionEntity } from './entities/prescription.entity';
+import { IncomingMessageEntity } from './entities/incoming-message.entity';
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ dotenv.config();
           RoutingFilterEntity,
           AppConfigEntity,
           PrescriptionEntity,
+          IncomingMessageEntity,
         ],
         synchronize: false,
         timezone: 'Z',
@@ -33,6 +35,7 @@ dotenv.config();
       RoutingFilterEntity,
       AppConfigEntity,
       PrescriptionEntity,
+      IncomingMessageEntity,
     ]),
   ],
   exports: [TypeOrmModule],

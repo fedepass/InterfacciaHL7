@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { ParsersService } from '../parsers/parsers.service';
 import { DispatcherService, DispatchResult } from '../dispatcher/dispatcher.service';
 import { PrescriptionEntity } from '../database/entities/prescription.entity';
+import { IncomingMessageEntity } from '../database/entities/incoming-message.entity';
 
 @Injectable()
 export class PrescriptionsService {
@@ -12,12 +14,36 @@ export class PrescriptionsService {
     private readonly dispatcherService: DispatcherService,
     @InjectRepository(PrescriptionEntity)
     private readonly prescriptionRepo: Repository<PrescriptionEntity>,
+    @InjectRepository(IncomingMessageEntity)
+    private readonly incomingRepo: Repository<IncomingMessageEntity>,
   ) {}
 
-  async receive(raw: string): Promise<DispatchResult> {
-    const normalized = this.parsersService.parse(raw);
-    const result = this.dispatcherService.dispatch(normalized);
-    await this.prescriptionRepo.save(this.toEntity(result));
+  async receive(raw: string, sourceIp?: string): Promise<DispatchResult> {
+    const detectedFormat = this.parsersService.detectFormat(raw.trim());
+    const logEntry: Partial<IncomingMessageEntity> = {
+      id: uuidv4(),
+      rawPayload: raw,
+      detectedFormat,
+      sourceIp: sourceIp ?? null,
+      parseStatus: 'SUCCESS',
+      errorMessage: null,
+      prescriptionId: null,
+    };
+
+    let result: DispatchResult;
+    try {
+      const normalized = this.parsersService.parse(raw);
+      result = this.dispatcherService.dispatch(normalized);
+      await this.prescriptionRepo.save(this.toEntity(result));
+      logEntry.prescriptionId = result.prescriptionId;
+    } catch (e) {
+      logEntry.parseStatus = 'ERROR';
+      logEntry.errorMessage = e.message ?? String(e);
+      await this.incomingRepo.save(logEntry);
+      throw e;
+    }
+
+    await this.incomingRepo.save(logEntry);
     return result;
   }
 

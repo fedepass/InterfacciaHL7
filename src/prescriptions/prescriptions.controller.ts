@@ -27,7 +27,8 @@ export class PrescriptionsController {
         return res.status(HttpStatus.BAD_REQUEST).json({ error: 'Body vuoto o non leggibile' });
       }
 
-      const result = await this.prescriptionsService.receive(raw);
+      const sourceIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ?? req.socket.remoteAddress;
+      const result = await this.prescriptionsService.receive(raw, sourceIp);
       const filtered = this.configService.applyOutputFilter(result as unknown as Record<string, any>);
       return res.status(HttpStatus.CREATED).json(filtered);
     } catch (e) {
