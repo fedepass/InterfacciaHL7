@@ -32,10 +32,6 @@ export class PrescriptionEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  // Preparazione completa (snapshot JSON)
-  @Column({ name: 'preparation', type: 'json' })
-  preparation: Record<string, any>;
-
   // Paziente
   @Column({ name: 'patient_id', length: 100 })
   patientId: string;
@@ -49,18 +45,45 @@ export class PrescriptionEntity {
   @Column({ name: 'patient_bed_number', length: 20, nullable: true })
   patientBedNumber: string | null;
 
-  // Preparazione (colonne principali per query)
+  // Preparazione farmaco — tutti i campi decodificati
   @Column({ name: 'prep_drug', length: 200 })
   prepDrug: string;
 
   @Column({ name: 'prep_category', length: 100 })
   prepCategory: string;
 
+  @Column({ name: 'prep_code', length: 50, nullable: true })
+  prepCode: string | null;
+
   @Column({ name: 'prep_dosage', length: 50 })
   prepDosage: string;
 
+  @Column({ name: 'prep_dosage_value', type: 'decimal', precision: 10, scale: 3, nullable: true })
+  prepDosageValue: number | null;
+
+  @Column({ name: 'prep_dosage_unit', length: 30, nullable: true })
+  prepDosageUnit: string | null;
+
   @Column({ name: 'prep_route', length: 50 })
   prepRoute: string;
+
+  @Column({ name: 'prep_solvent', length: 100, nullable: true })
+  prepSolvent: string | null;
+
+  @Column({ name: 'prep_volume', length: 30, nullable: true })
+  prepVolume: string | null;
+
+  @Column({ name: 'prep_volume_value', type: 'decimal', precision: 10, scale: 3, nullable: true })
+  prepVolumeValue: number | null;
+
+  @Column({ name: 'prep_volume_unit', length: 20, nullable: true })
+  prepVolumeUnit: string | null;
+
+  @Column({ name: 'prep_infusion_rate', length: 50, nullable: true })
+  prepInfusionRate: string | null;
+
+  @Column({ name: 'prep_final_concentration', length: 50, nullable: true })
+  prepFinalConcentration: string | null;
 
   @Column({ name: 'prep_frequency', length: 100 })
   prepFrequency: string;
