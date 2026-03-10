@@ -123,7 +123,7 @@ export class CdaPrfParser {
       // Usa ATC se disponibile, altrimenti AIC (codice primario)
       const drugCode = this.attr(atcTr, 'code') || this.attr(codeEl, 'code') || undefined;
 
-      return { drugName, drugCode, drugCategory: this.inferCategory(drugName, drugCode) };
+      return { drugName, drugCode, drugCategory: drugCode ?? '' };
     }
 
     // Preparazione magistrale (manufacturedMaterial)
@@ -133,10 +133,10 @@ export class CdaPrfParser {
       const ingredients: any[] = Array.isArray(mm.ingredient) ? mm.ingredient : mm.ingredient ? [mm.ingredient] : [];
       const active = ingredients.find(i => this.attr(i, 'classCode') === 'ACTI');
       const drugCode = this.attr(active?.ingredientSubstance?.code, 'code') || undefined;
-      return { drugName, drugCode, drugCategory: this.inferCategory(drugName, drugCode) };
+      return { drugName, drugCode, drugCategory: drugCode ?? '' };
     }
 
-    return { drugName: 'N/D', drugCode: undefined, drugCategory: 'OTHER' };
+    return { drugName: 'N/D', drugCode: undefined, drugCategory: '' };
   }
 
   // ── Reparto dall'encompassingEncounter ─────────────────────────────────────
@@ -346,25 +346,4 @@ export class CdaPrfParser {
     return `${cs} ${doseUnit ?? ''}/${volUnit ?? 'ml'}`.trim();
   }
 
-  private inferCategory(name: string, code?: string): string {
-    const n = (name || '').toLowerCase();
-    if (/methotrex|cisplat|carboplat|cyclophos|doxorub|fluorourac|vincrist|paclitax|gemcitab|irinotecan|oxaliplat|etoposid|bleomycin/.test(n)) return 'CHEMOTHERAPY';
-    if (/cyclosporin|ciclosporin|tacrolimus|mycophenolat|micofenolat|azathioprin|sirolimus|everolimus/.test(n)) return 'IMMUNOSUPPRESSANT';
-    if (/amoxicil|ampicil|cefazolin|ceftriaxon|vancomycin|vancomicin|meropenem|piperacillin|metronidazol|ciprofloxacin|levofloxacin/.test(n)) return 'ANTIBIOTIC';
-    if (/heparin|eparina|warfarin|enoxaparin|fondaparin|dabigatran|rivaroxaban/.test(n)) return 'ANTICOAGULANT';
-    if (/glucose|glucosio|dextrose|amino.*acid|parenteral|nutriflex|kabiven/.test(n)) return 'NUTRITION';
-    if (/morphine|morfina|fentanyl|oxycodone|ossicodone|tramadol|remifentanil/.test(n)) return 'ANALGESIC_OPIOID';
-    if (/insulin|insulina/.test(n)) return 'INSULIN';
-    // Fallback su prefisso ATC
-    if (code) {
-      if (code.startsWith('L01')) return 'CHEMOTHERAPY';
-      if (code.startsWith('L04')) return 'IMMUNOSUPPRESSANT';
-      if (code.startsWith('J01')) return 'ANTIBIOTIC';
-      if (code.startsWith('B01')) return 'ANTICOAGULANT';
-      if (code.startsWith('B05') || code.startsWith('V06')) return 'NUTRITION';
-      if (code.startsWith('N02A')) return 'ANALGESIC_OPIOID';
-      if (code.startsWith('A10A')) return 'INSULIN';
-    }
-    return 'OTHER';
-  }
 }

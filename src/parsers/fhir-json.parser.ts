@@ -155,7 +155,7 @@ export class FhirJsonParser {
 
     const prescribedBy = medReq.requester?.display ?? undefined;
     const notes        = medReq.note?.[0]?.text ?? undefined;
-    const category     = this.inferCategory(drugName, drugCode);
+    const category     = drugCode ?? '';
 
     return {
       id: uuidv4(),
@@ -208,15 +208,4 @@ export class FhirJsonParser {
     return ext?.valueString ?? ext?.valueCode ?? undefined;
   }
 
-  private inferCategory(name: string, code?: string): string {
-    const n = (name || '').toLowerCase();
-    if (/methotrex|cisplat|carboplat|cyclophos|doxorub|fluorourac|vincrist|paclitax|gemcitab|irinotecan|oxaliplat|etoposid|bleomycin|dacarbaz|ifosfam/.test(n)) return 'CHEMOTHERAPY';
-    if (/cyclosporin|tacrolimus|mycophenolat|azathioprin|sirolimus|everolimus/.test(n)) return 'IMMUNOSUPPRESSANT';
-    if (/amoxicil|ampicil|cefazolin|ceftriaxon|vancomycin|vancomicin|meropenem|piperacillin|metronidazol|ciprofloxacin|levofloxacin|imipenem|linezolid|daptomycin/.test(n)) return 'ANTIBIOTIC';
-    if (/heparin|eparina|warfarin|enoxaparin|fondaparin|dabigatran|rivaroxaban/.test(n)) return 'ANTICOAGULANT';
-    if (/glucose|glucosio|dextrose|amino acid|aminoacid|lipid|lipide|tpn|parenteral|nutriflex|kabiven/.test(n)) return 'NUTRITION';
-    if (/morphine|morfina|fentanyl|oxycodone|ossicodone|tramadol|hydromorphone|remifentanil|sufentanil/.test(n)) return 'ANALGESIC_OPIOID';
-    if (/insulin|insulina/.test(n)) return 'INSULIN';
-    return 'OTHER';
-  }
 }
