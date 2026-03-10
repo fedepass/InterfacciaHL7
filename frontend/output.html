@@ -17,37 +17,41 @@
   </nav>
 
   <main>
-    <h1>Configurazione Campi Output JSON</h1>
+    <h1>Anagrafica Campi Output</h1>
     <p class="subtitle">
-      Seleziona i campi da includere nel JSON restituito da <code>POST /api/prescriptions</code>.
-      I campi deselezionati vengono omessi dalla risposta verso i sistemi terzi.
-      La dashboard interna utilizza sempre tutti i dati.
+      Tutti i campi disponibili nei messaggi HL7 di prescrizione farmaceutica, divisi per sezione.
+      Spunta i campi da restituire nelle chiamate <code>GET /api/prescriptions</code> verso sistemi terzi.
+      I campi deselezionati vengono omessi dalla risposta API.
     </p>
 
     <div class="output-layout">
 
-      <!-- Pannello selezione campi -->
+      <!-- Anagrafica / selezione campi -->
       <div>
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Selezione Campi</h2>
-            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-              <span id="field-counter" style="font-size:.8rem;color:#718096;align-self:center"></span>
-              <button onclick="selectAll()">Seleziona tutti</button>
+        <div class="panel" style="padding:0">
+
+          <!-- Barra azioni fissa -->
+          <div class="panel-header" style="padding:.75rem 1rem;position:sticky;top:0;background:#fff;z-index:10;border-bottom:1px solid #e2e8f0;border-radius:.5rem .5rem 0 0">
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+              <span id="field-counter" style="font-size:.8rem;color:#718096;min-width:80px"></span>
+              <button onclick="selectAll()">Tutti</button>
               <button onclick="selectNone()">Nessuno</button>
+            </div>
+            <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+              <span id="output-msg" class="msg" style="margin:0"></span>
               <button onclick="saveOutputFields()" class="btn-primary">Salva configurazione</button>
             </div>
           </div>
 
-          <div id="field-groups">
-            <div class="loading">Caricamento...</div>
+          <!-- Sezioni campi -->
+          <div id="field-groups" style="padding:1rem">
+            <div class="loading">Caricamento anagrafica...</div>
           </div>
 
-          <p id="output-msg" class="msg" style="margin-top:.75rem"></p>
         </div>
       </div>
 
-      <!-- Pannello anteprima JSON -->
+      <!-- Anteprima JSON live -->
       <div class="preview-panel">
         <div class="panel">
           <div class="panel-header">
@@ -55,7 +59,7 @@
             <span style="font-size:.72rem;color:#a0aec0">Aggiornamento in tempo reale</span>
           </div>
           <p style="font-size:.75rem;color:#718096;margin-bottom:.5rem">
-            Esempio con dati fittizi — mostra la struttura effettiva dell'output.
+            Dati fittizi — struttura reale dell'output restituito ai sistemi terzi.
           </p>
           <pre id="output-preview" class="result-box" style="max-height:72vh;overflow:auto;font-size:.7rem;line-height:1.45"></pre>
         </div>

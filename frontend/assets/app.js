@@ -690,7 +690,7 @@ async function loadOutputPage() {
     required: !!f.required,
   }));
 
-  // Raggruppa per group
+  // Raggruppa per group mantenendo l'ordine di arrivo
   const groups = {};
   for (const f of OUTPUT_FIELD_DEFS) {
     if (!groups[f.group]) groups[f.group] = { icon: _GROUP_ICONS[f.group] ?? '📄', fields: [] };
@@ -698,42 +698,52 @@ async function loadOutputPage() {
   }
 
   const container = document.getElementById('field-groups');
-  container.innerHTML = Object.entries(groups).map(([groupName, { icon, fields }]) => `
-    <div class="field-group">
-      <div class="field-group-header">
-        <span class="field-group-icon">${icon}</span>
-        <span class="field-group-title">${groupName}</span>
-        <label class="field-group-toggle" title="Seleziona/deseleziona gruppo">
-          <input type="checkbox" class="group-cb" data-group="${groupName}"
-            onchange="toggleGroup('${groupName}', this.checked)">
-          Tutti
-        </label>
-      </div>
-      <div class="field-grid">
-        ${fields.map(f => {
-          const isEnabled = !enabledFields || enabledFields.includes(f.path);
-          return `
-          <label class="field-item${f.required ? ' disabled-field' : ''}">
+  container.innerHTML = Object.entries(groups).map(([groupName, { icon, fields }]) => {
+    const rows = fields.map(f => {
+      const isEnabled = !enabledFields || enabledFields.includes(f.path);
+      return `
+        <tr class="ana-row${f.required ? ' ana-row-required' : ''}" title="${f.desc}">
+          <td class="ana-td-check">
             <input type="checkbox" class="field-cb"
               data-path="${f.path}" data-group="${groupName}"
               ${isEnabled ? 'checked' : ''}
               ${f.required ? 'disabled' : ''}
               onchange="_syncGroupCheckbox('${groupName}'); _updatePreview()">
-            <div class="field-item-body">
-              <div class="field-item-name">
-                ${f.label}
-                ${f.required ? '<span class="field-required-badge">fisso</span>' : ''}
-              </div>
-              <div class="field-item-path">${f.path}</div>
-              <div class="field-item-desc">${f.desc}</div>
-            </div>
-          </label>`;
-        }).join('')}
-      </div>
-    </div>
-  `).join('');
+          </td>
+          <td class="ana-td-path"><code>${f.path}</code></td>
+          <td class="ana-td-label">
+            ${f.label}
+            ${f.required ? '<span class="field-required-badge">fisso</span>' : ''}
+          </td>
+          <td class="ana-td-desc">${f.desc}</td>
+        </tr>`;
+    }).join('');
 
-  // Inizializza i checkbox di gruppo
+    return `
+      <div class="ana-section">
+        <div class="ana-section-header">
+          <span class="field-group-icon">${icon}</span>
+          <span class="field-group-title">${groupName}</span>
+          <label class="field-group-toggle" title="Seleziona/deseleziona sezione">
+            <input type="checkbox" class="group-cb" data-group="${groupName}"
+              onchange="toggleGroup('${groupName}', this.checked)">
+            Seleziona sezione
+          </label>
+        </div>
+        <table class="ana-table">
+          <thead>
+            <tr>
+              <th class="ana-th-check"></th>
+              <th class="ana-th-path">Campo (path)</th>
+              <th class="ana-th-label">Etichetta</th>
+              <th class="ana-th-desc">Descrizione</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
   Object.keys(groups).forEach(g => _syncGroupCheckbox(g));
   _updatePreview();
 }
