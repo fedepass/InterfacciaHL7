@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { XMLParser } from 'fast-xml-parser';
 import { v4 as uuidv4 } from 'uuid';
 import { NormalizedPrescription, Priority } from '../common/dto/normalized-prescription.dto';
+import { inferCategory } from './drug-category.util';
 
 @Injectable()
 export class CdaPrfParser {
@@ -123,7 +124,7 @@ export class CdaPrfParser {
       // Usa ATC se disponibile, altrimenti AIC (codice primario)
       const drugCode = this.attr(atcTr, 'code') || this.attr(codeEl, 'code') || undefined;
 
-      return { drugName, drugCode, drugCategory: drugCode ?? '' };
+      return { drugName, drugCode, drugCategory: inferCategory(drugName, drugCode) };
     }
 
     // Preparazione magistrale (manufacturedMaterial)
@@ -133,10 +134,10 @@ export class CdaPrfParser {
       const ingredients: any[] = Array.isArray(mm.ingredient) ? mm.ingredient : mm.ingredient ? [mm.ingredient] : [];
       const active = ingredients.find(i => this.attr(i, 'classCode') === 'ACTI');
       const drugCode = this.attr(active?.ingredientSubstance?.code, 'code') || undefined;
-      return { drugName, drugCode, drugCategory: drugCode ?? '' };
+      return { drugName, drugCode, drugCategory: inferCategory(drugName, drugCode) };
     }
 
-    return { drugName: 'N/D', drugCode: undefined, drugCategory: '' };
+    return { drugName: 'N/D', drugCode: undefined, drugCategory: 'OTHER' };
   }
 
   // ── Reparto dall'encompassingEncounter ─────────────────────────────────────

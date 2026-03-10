@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { NormalizedPrescription, Priority } from '../common/dto/normalized-prescription.dto';
+import { inferCategory } from './drug-category.util';
 
 const hl7 = require('simple-hl7');
 
@@ -220,7 +221,7 @@ export class Hl7v2Parser {
     const prescribedBy = [docGiven, docFamily].filter(Boolean).join(' ') || undefined;
 
     const notes    = get('NTE', 3) || undefined;
-    const category = drugCode ?? '';
+    const category = inferCategory(drugName, drugCode);
 
     return {
       id: uuidv4(),
