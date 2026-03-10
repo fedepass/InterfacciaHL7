@@ -8,8 +8,6 @@ import { ConfigModule } from './config/config.module';
 import { ParsersModule } from './parsers/parsers.module';
 import { DispatcherModule } from './dispatcher/dispatcher.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
-import { DrugCategoryModule } from './drug-categories/drug-category.module';
-
 @Module({
   imports: [
     ServeStaticModule.forRoot({
@@ -19,7 +17,6 @@ import { DrugCategoryModule } from './drug-categories/drug-category.module';
     }),
     DatabaseModule,
     ConfigModule,
-    DrugCategoryModule,
     ParsersModule,
     DispatcherModule,
     PrescriptionsModule,
