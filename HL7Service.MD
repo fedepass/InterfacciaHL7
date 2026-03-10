@@ -1,8 +1,8 @@
 # Product Requirements Document
 # Servizio HL7 - Dispatcher Preparazioni IV in Farmacia Ospedaliera
 
-**Versione**: 2.1
-**Data**: 2026-03-09
+**Versione**: 2.3
+**Data**: 2026-03-10
 **Stato**: Implementato
 
 ---
@@ -23,6 +23,8 @@
 | 1.9 | 2026-03-05 | Ordinamento coda configurabile per cappa: nuovo attributo `queueSortOrder` (PRIORITY \| ARRIVAL_ASC \| ARRIVAL_DESC \| WARD). Nuova colonna `patient_ward` in `cappa_queue` per supporto sort per reparto. Dashboard: tabella prescrizioni mostra solo PENDING con paginazione a blocchi da 10 ("Carica altre"). UI cappe: select ordinamento nel form creazione e nel modal modifica. |
 | 2.0 | 2026-03-07 | Rimozione del sistema cappe e del routing engine. Il servizio diventa un dispatcher puro: riceve, parsifica, normalizza e restituisce il JSON strutturato senza smistamento su postazioni fisiche. Rimossi: tabelle `cappe`, `cappa_specializations`, `cappa_queue`, `ana_cappa_*`; colonne `assigned_cappa_id`, `assigned_cappa`, `routing_info` da `prescriptions`; colonne `target_cappa_id`, `fallback_to_default` da `routing_filters`; colonna `default_routing_strategy` da `app_config`. Rimossa pagina Web UI `config.html`. `POST /api/prescriptions` ora restituisce `HTTP 201` con body JSON completo dei campi decodificati (filtro output applicato). Dashboard mostra solo prescrizioni `PENDING` non ancora consegnate via API. La pagina Drug Categories sostituisce Cappe nella navigazione. |
 | 2.1 | 2026-03-09 | Sanitizzazione post-parsing: nuovo metodo `sanitize()` in `ParsersService` rimuove dati volume/solvente clinicamente impossibili per vie di somministrazione a siringa (SC, IM, SIRINGA) quando `volumeValue > 60 ml`. Fix HL7 v2: regex fallback volume da NTE aggiornata con negative lookahead `(?!\s*\/)` per non interpretare erroneamente le velocità di infusione (es. `100 ml/h`) come volume; regex `isPharmUnit` corretta (`fial[ae]` per riconoscere sia "fiale" che "fiala"). Fix FHIR XML: `doseQuantity` ora letto sia dalla struttura R4 standard (dentro `<doseAndRate>`) sia da implementazioni non conformi con `<doseQuantity>` direttamente su `<dosageInstruction>`; supporto `doseAndRate` come array. Fix CDA-PrF: qualifier TP per priorità cercato sia direttamente su `cd.code.qualifier` (struttura standard) sia in `cd.code.translation[].qualifier` (struttura alternativa), entrambe ora supportate. |
+| 2.2 | 2026-03-10 | Rimozione completa del modulo Categorie Farmaco: eliminate pagina Web UI `/drug-categories.html`, controller/service/module `drug-categories`, entità `DrugCategoryEntity`, `DrugCategoryAliasEntity`, `DrugCategoryAtcEntity`, `AtcLevel1Entity`, `AtcLevel2Entity` e relative tabelle DB (`drug_categories`, `drug_category_aliases`, `drug_category_atc`, `atc_level1`, `atc_level2`). La categorizzazione farmaci rimane tramite `drug-category.util.ts` (regex su nome + prefisso ATC statico). |
+| 2.3 | 2026-03-10 | Aggiunta tabella `incoming_messages` per logging di ogni payload ricevuto (raw, formato rilevato, IP sorgente, esito parse SUCCESS/ERROR). Normalizzazione tabella `prescriptions`: rimossa colonna JSON `preparation`, aggiunte 9 colonne atomiche (`prep_code`, `prep_dosage_value`, `prep_dosage_unit`, `prep_solvent`, `prep_volume`, `prep_volume_value`, `prep_volume_unit`, `prep_infusion_rate`, `prep_final_concentration`). Anagrafica campi output da DB: nuove tabelle `ana_output_fields` (catalogo 29 campi + metadati gruppo/obbligatorio) e `app_config_output_fields` (campi abilitati, relazionale con FK). Pagina `/output.html` ridisegnata come anagrafica tabellare divisa per sezione con anteprima JSON live. Fix parser HL7 v2: prescrittore letto da `PV1.7` come fallback a `ORC.12`. Fix categoria farmaco: ripristinato `inferCategory()` su tutti i parser (HL7v2, FHIR JSON, FHIR XML, CDA-PrF) — `prep_category` ora correttamente distinto da `prep_code`. |
 
 ---
 
@@ -263,7 +265,7 @@ Il sistema classifica i farmaci per nome mediante pattern regex:
 | `INSULIN` | Insulina |
 | `OTHER` | Tutti gli altri |
 
-Le categorie e i loro alias (italiano/inglese) sono gestiti tramite la pagina **Categorie Farmaco** della Web UI e persistiti nel database (tabelle `drug_categories`, `drug_category_aliases`, `drug_category_atc`).
+La categorizzazione è interamente statica: il modulo `drug-category.util.ts` applica prima le regex sul nome del farmaco, poi i prefissi ATC sul codice. Non richiede tabelle DB né configurazione a runtime.
 
 ### 4.4 Filtri di Configurazione
 
@@ -374,7 +376,7 @@ Tramite la pagina Web UI "Campi Output" (o l'API `PUT /api/config/output-fields`
 |--------|-------|
 | Generale | `prescriptionId`*, `status`*, `priority`, `sourceFormat`, `prescribedBy`, `notes`, `deliveryStatus` |
 | Paziente | `patient.id`, `patient.name`, `patient.ward`, `patient.bedNumber` |
-| Preparazione | `preparation.drug`, `preparation.category`, `preparation.code`, `preparation.dosage`, `preparation.route`, `preparation.solvent`, `preparation.volume`, `preparation.infusionRate`, `preparation.finalConcentration`, `preparation.frequency` |
+| Preparazione Farmaco | `preparation.drug`, `preparation.category`, `preparation.code`, `preparation.dosage`, `preparation.dosageValue`, `preparation.dosageUnit`, `preparation.route`, `preparation.solvent`, `preparation.volume`, `preparation.volumeValue`, `preparation.volumeUnit`, `preparation.infusionRate`, `preparation.finalConcentration`, `preparation.frequency` |
 | Timestamp | `timestamps.received`, `timestamps.dispatched`, `timestamps.sentToApi`, `timestamps.requiredBy` |
 
 \* Campo obbligatorio (sempre incluso, non disattivabile)
@@ -382,14 +384,13 @@ Tramite la pagina Web UI "Campi Output" (o l'API `PUT /api/config/output-fields`
 ### 4.7 Interfaccia di Configurazione
 
 #### 4.7.1 Web UI
-Pannello amministrativo browser-based accessibile via HTTP, composto da 4 pagine:
+Pannello amministrativo browser-based accessibile via HTTP, composto da 3 pagine:
 
 | Pagina | URL | Funzionalità |
 |--------|-----|--------------|
 | Dashboard | `/` | Prescrizioni **PENDING** in attesa con paginazione da 10 ("Carica altre"), form di test con generatore casuale per tutti i formati |
 | Filtri | `/filtri.html` | CRUD filtri di configurazione, impostazione condizioni e priorità |
-| Campi Output | `/output.html` | Selezione checkbox dei campi da includere nel JSON di risposta; anteprima JSON live aggiornata in tempo reale |
-| Categorie Farmaco | `/drug-categories.html` | Gestione categorie farmaco, alias (IT/EN) e codici ATC associati |
+| Campi Output | `/output.html` | Anagrafica tabellare di tutti i 29 campi configurabili, divisi per sezione (Generale, Paziente, Preparazione Farmaco, Timestamp). Selezione checkbox per abilitare/disabilitare ogni campo. Anteprima JSON live aggiornata in tempo reale. Il catalogo e i campi abilitati sono letti/scritti via DB. |
 
 La dashboard si aggiorna automaticamente ogni 10 secondi.
 
@@ -443,9 +444,11 @@ Tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM
 | Dato | Meccanismo | Tabella/i |
 |------|-----------|-----------|
 | Filtri di configurazione | DB, caricata in cache al boot | `routing_filters` |
-| Campi output | DB, singleton | `app_config` |
+| Catalogo campi output | DB, sola lettura a runtime | `ana_output_fields` |
+| Campi output abilitati | DB, relazionale con FK | `app_config_output_fields` |
+| Configurazione generale | DB, singleton | `app_config` |
 | Prescrizioni ricevute + dispatch result | DB, scritto ad ogni POST | `prescriptions` |
-| Categorie farmaco e alias | DB | `drug_categories`, `drug_category_aliases`, `drug_category_atc`, `atc_level1`, `atc_level2` |
+| Log payload in ingresso | DB, scritto ad ogni POST (prima del parsing) | `incoming_messages` |
 
 **Flusso di avvio (`onModuleInit`):**
 1. `ConfigService` legge da DB filtri e `app_config` e popola la cache in-memory
@@ -536,11 +539,11 @@ Tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM
 ┌─────────────────────────────────────────────────────────────┐
 │                  MySQL 8 (hl7_mysql)                         │
 │                                                              │
-│  ENTITÀ               CONFIGURAZIONE      CATEGORIE FARMACO  │
-│  prescriptions        app_config          drug_categories    │
-│                       routing_filters     drug_cat_aliases   │
-│                                           drug_category_atc  │
-│                                           atc_level1/2       │
+│  ENTITÀ               CONFIGURAZIONE        LOG INGRESSO      │
+│  prescriptions        app_config            incoming_messages │
+│                       routing_filters                        │
+│                       ana_output_fields                      │
+│                       app_config_output_fields               │
 └─────────────────────────────────────────────────────────────┘
                        │ JSON output
                        ▼
@@ -563,20 +566,19 @@ servizio-hl7/
 │   │   ├── database.module.ts               TypeORM forRootAsync — connessione MySQL
 │   │   └── entities/
 │   │       ├── routing-filter.entity.ts     Entità tabella `routing_filters`
-│   │       ├── app-config.entity.ts         Entità tabella `app_config` (output_fields)
-│   │       ├── prescription.entity.ts       Entità tabella `prescriptions`
-│   │       ├── drug-category.entity.ts      Entità tabella `drug_categories`
-│   │       ├── drug-category-alias.entity.ts
-│   │       ├── drug-category-atc.entity.ts
-│   │       ├── atc-level1.entity.ts
-│   │       └── atc-level2.entity.ts
+│   │       ├── app-config.entity.ts         Entità tabella `app_config`
+│   │       ├── prescription.entity.ts       Entità tabella `prescriptions` (colonne atomiche prep_*)
+│   │       ├── incoming-message.entity.ts   Entità tabella `incoming_messages`
+│   │       ├── ana-output-field.entity.ts   Entità tabella `ana_output_fields` (catalogo)
+│   │       └── app-config-output-field.entity.ts  Entità tabella `app_config_output_fields`
 │   ├── parsers/
 │   │   ├── parsers.module.ts
-│   │   ├── parsers.service.ts               Auto-detect + orchestrazione
+│   │   ├── parsers.service.ts               Auto-detect + orchestrazione + sanitize()
 │   │   ├── hl7v2.parser.ts                  Parser HL7 v2 (RXO/RXE, RXC, conv. italiana)
 │   │   ├── fhir-json.parser.ts              Parser FHIR MedicationRequest JSON
 │   │   ├── fhir-xml.parser.ts               Parser FHIR XML (via fast-xml-parser)
-│   │   └── cda-prf.parser.ts                Parser CDA-PrF HL7 Italia v2.3
+│   │   ├── cda-prf.parser.ts                Parser CDA-PrF HL7 Italia v2.3
+│   │   └── drug-category.util.ts            Inferenza categoria farmaco (regex nome + ATC)
 │   ├── prescriptions/
 │   │   ├── prescriptions.module.ts
 │   │   ├── prescriptions.controller.ts      POST + GET /api/prescriptions
@@ -584,10 +586,6 @@ servizio-hl7/
 │   ├── dispatcher/
 │   │   ├── dispatcher.module.ts
 │   │   └── dispatcher.service.ts            Assembla DispatchResult da NormalizedPrescription
-│   ├── drug-categories/
-│   │   ├── drug-categories.module.ts
-│   │   ├── drug-categories.controller.ts    CRUD /api/drug-categories
-│   │   └── drug-categories.service.ts       Lettura/scrittura categorie, alias e ATC
 │   └── config/
 │       ├── config.module.ts
 │       ├── config.controller.ts             /api/config/filters, /api/config/output-fields
@@ -595,14 +593,14 @@ servizio-hl7/
 ├── frontend/
 │   ├── index.html                           Dashboard (prescrizioni PENDING + generatore test)
 │   ├── filtri.html                          Gestione filtri di configurazione
-│   ├── output.html                          Configurazione campi output JSON
-│   ├── drug-categories.html                 Gestione categorie farmaco, alias e ATC
+│   ├── output.html                          Anagrafica campi output JSON (tabella per sezione)
 │   └── assets/
 │       ├── style.css
 │       └── app.js                           Logic UI + generatore prescrizioni random
 ├── migrations/
 │   ├── v2.0_remove_cappe.sql                Rimozione tabelle cappe e colonne correlate
-│   └── ...
+│   ├── v2.1_remove_drug_classification.sql  Rimozione classificazione farmaci da DB e parser
+│   └── v2.2_remove_cappa_output_fields.sql  Pulizia output fields e colonne obsolete cappe
 ├── .env                                     Variabili connessione DB per sviluppo locale (non in git)
 ├── HL7Service.MD                            Questo documento
 ├── Dockerfile
@@ -621,28 +619,21 @@ Il database `hl7service` (MySQL 8) è gestito con `synchronize: false` in TypeOR
 
 | Tabella | PK | Contenuto |
 |---|---|---|
-| `prescriptions` | `id` VARCHAR UUID | Prescrizioni ricevute + snapshot DispatchResult. Colonne chiave: `prescription_id` (UUID), `delivery_status` (PENDING/SENT), `patient_name`, `patient_ward`, `drug_name`, `dosage`, `priority`, `source_format`, `received_at`, `dispatched_at`, `sent_to_api_at`, più colonne JSON per dati estesi. |
+| `prescriptions` | `id` VARCHAR UUID | Prescrizioni ricevute + snapshot DispatchResult. Colonne: `status`, `delivery_status` (PENDING/SENT), `priority`, `source_format`, `prescribed_by`, `notes`, `patient_id`, `patient_name`, `patient_ward`, `patient_bed_number`, `prep_drug`, `prep_category`, `prep_code`, `prep_dosage`, `prep_dosage_value` (DECIMAL), `prep_dosage_unit`, `prep_route`, `prep_solvent`, `prep_volume`, `prep_volume_value` (DECIMAL), `prep_volume_unit`, `prep_infusion_rate`, `prep_final_concentration`, `prep_frequency`, `ts_received`, `ts_dispatched`, `ts_required_by`, `ts_sent_to_api`. |
+| `incoming_messages` | `id` VARCHAR UUID | Log di ogni payload ricevuto: `raw_payload` (MEDIUMTEXT), `detected_format` (ENUM: HL7V2/FHIR_JSON/FHIR_XML/CDA_PRF/UNKNOWN), `source_ip`, `parse_status` (ENUM: SUCCESS/ERROR), `error_message`, `prescription_id`, `received_at`. |
 
 ### 9.2 CONFIGURAZIONE
 
 | Tabella | PK | Contenuto |
 |---|---|---|
-| `app_config` | `id` INT (singleton = 1) | Array JSON `output_fields` (null = tutti i campi inclusi) |
+| `app_config` | `id` INT (singleton = 1) | Configurazione generale del servizio |
 | `routing_filters` | `id` VARCHAR UUID | Filtri configurabili: `name`, `enabled`, `priority`, `condition_drug_cats` (JSON), `condition_ward`, `condition_urgency` |
+| `ana_output_fields` | `field_path` VARCHAR (UNIQUE) | Catalogo di tutti i campi configurabili (29 voci): `label`, `group_name` (Generale/Paziente/Preparazione Farmaco/Timestamp), `description`, `required` (TINYINT), `sort_order` |
+| `app_config_output_fields` | `field_path` VARCHAR (FK → ana_output_fields) | Campi output abilitati: `sort_order`. Vuoto = tutti i campi inclusi. |
 
-### 9.3 CATEGORIE FARMACO
+### 9.3 Migrazioni DDL
 
-| Tabella | PK | Contenuto |
-|---|---|---|
-| `drug_categories` | `id` INT | Categorie standard (CHEMOTHERAPY, ANTIBIOTIC, …) con nome e descrizione |
-| `drug_category_aliases` | `id` INT | Sinonimi IT/EN → categoria (es. CHEMIOTERAPICI → CHEMOTHERAPY) |
-| `drug_category_atc` | `id` INT | Codici ATC associati a ogni categoria |
-| `atc_level1` | `id` INT | Primo livello ATC (classi anatomiche principali) |
-| `atc_level2` | `id` INT | Secondo livello ATC (sottogruppi terapeutici) |
-
-### 9.4 Migrazione v2.0
-
-Il file `migrations/v2.0_remove_cappe.sql` rimuove tutte le strutture legate alle cappe:
+**v2.0** — `migrations/v2.0_remove_cappe.sql`: rimuove tutte le strutture legate alle cappe:
 
 ```sql
 -- Rimozione FK e colonne da prescriptions
@@ -668,6 +659,10 @@ DROP TABLE IF EXISTS ana_cappa_types;
 DROP TABLE IF EXISTS cappe;
 SET FOREIGN_KEY_CHECKS = 1;
 ```
+
+**v2.1** — `migrations/v2.1_remove_drug_classification.sql`: rimuove tabelle categorie farmaco (`drug_categories`, `drug_category_aliases`, `drug_category_atc`, `atc_level1`, `atc_level2`). La categorizzazione rimane statica in `drug-category.util.ts`.
+
+**v2.2** — `migrations/v2.2_remove_cappa_output_fields.sql`: pulizia colonne output fields obsolete (riferimenti cappe) e preparazione schema per `ana_output_fields` / `app_config_output_fields`.
 
 ---
 
