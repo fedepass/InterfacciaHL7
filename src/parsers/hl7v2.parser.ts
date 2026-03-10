@@ -214,9 +214,9 @@ export class Hl7v2Parser {
     const finalConcentration = this.calcConcentration(dosageValue, dosageUnit, volumeValue, volumeUnit);
 
     // ── PRESCRITTORE ──────────────────────────────────────────────────────────
-    // ORC.12: comp.2=cognome, comp.3=nome
-    const docFamily    = get('ORC', 12, 2);
-    const docGiven     = get('ORC', 12, 3);
+    // ORC.12 oppure PV1.7 (attending doctor): comp.2=cognome, comp.3=nome
+    const docFamily    = get('ORC', 12, 2) || get('PV1', 7, 2);
+    const docGiven     = get('ORC', 12, 3) || get('PV1', 7, 3);
     const prescribedBy = [docGiven, docFamily].filter(Boolean).join(' ') || undefined;
 
     const notes    = get('NTE', 3) || undefined;
