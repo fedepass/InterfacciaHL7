@@ -562,7 +562,7 @@ async function sendTest() {
   try {
     const res = await fetch(API_BASE_URL + '/api/prescriptions', {
       method: 'POST',
-      headers: { 'Content-Type': ctMap[fmt] },
+      headers: { 'Content-Type': ctMap[fmt], 'Authorization': 'Bearer ' + getToken() },
       body: payload,
     });
     const text = await res.text();
@@ -1009,15 +1009,37 @@ async function loadAtcHierarchy() {
   `).join('');
 }
 
-// ─── Utils ────────────────────────────────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 const API_BASE_URL = 'https://ip87-106-10-111.pbiaas.com';
 
+(function checkAuth() {
+  if (!localStorage.getItem('hl7_token')) {
+    window.location.replace('/login.html');
+  }
+})();
+
+function getToken() {
+  return localStorage.getItem('hl7_token') ?? '';
+}
+
+function logout() {
+  localStorage.removeItem('hl7_token');
+  window.location.replace('/login.html');
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
 async function apiFetch(url, method = 'GET', body = null) {
   try {
-    const opts = { method, headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      cache: 'no-store',
+    };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(API_BASE_URL + url, opts);
+    if (res.status === 401) { logout(); return null; }
     if (!res.ok) return null;
     const text = await res.text();
     return text ? JSON.parse(text) : null;

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmacia HL7 - Accesso</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f0f4f8; }
+    .login-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.10);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+    }
+    .login-card h1 { font-size: 1.4rem; color: #1a202c; margin-bottom: .25rem; }
+    .login-card p  { font-size: .9rem; color: #718096; margin-bottom: 1.75rem; }
+    .field { margin-bottom: 1.1rem; }
+    .field label { display: block; font-size: .85rem; font-weight: 600; color: #4a5568; margin-bottom: .35rem; }
+    .field input {
+      width: 100%; padding: .6rem .85rem;
+      border: 1px solid #cbd5e0; border-radius: 6px;
+      font-size: .95rem; color: #1a202c;
+      outline: none; transition: border-color .15s;
+    }
+    .field input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,.15); }
+    .btn-login {
+      width: 100%; padding: .7rem;
+      background: #667eea; color: #fff;
+      border: none; border-radius: 6px;
+      font-size: 1rem; font-weight: 600;
+      cursor: pointer; margin-top: .5rem;
+      transition: background .15s;
+    }
+    .btn-login:hover { background: #5a67d8; }
+    .btn-login:disabled { background: #a0aec0; cursor: not-allowed; }
+    .error-msg { color: #e53e3e; font-size: .85rem; margin-top: .75rem; display: none; text-align: center; }
+    .logo { text-align: center; margin-bottom: 1.5rem; font-size: 2rem; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="logo">🏥</div>
+    <h1>Farmacia HL7</h1>
+    <p>Inserisci le credenziali per accedere</p>
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Utente</label>
+        <input type="text" id="username" autocomplete="username" placeholder="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn-login" id="btn-login">Accedi</button>
+      <div class="error-msg" id="error-msg">Credenziali non valide</div>
+    </form>
+  </div>
+
+  <script>
+    const API_BASE_URL = 'https://ip87-106-10-111.pbiaas.com';
+
+    if (localStorage.getItem('hl7_token')) {
+      window.location.replace('/');
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-login');
+      const err = document.getElementById('error-msg');
+      btn.disabled = true;
+      btn.textContent = 'Accesso in corso…';
+      err.style.display = 'none';
+
+      try {
+        const res = await fetch(API_BASE_URL + '/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (!res.ok) throw new Error();
+        const { token } = await res.json();
+        localStorage.setItem('hl7_token', token);
+        window.location.replace('/');
+      } catch {
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Accedi';
+      }
+    });
+  </script>
+</body>
+</html>
