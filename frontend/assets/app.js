@@ -560,7 +560,7 @@ async function sendTest() {
   const resultEl = document.getElementById('test-result');
   const ctMap = { hl7v2: 'text/plain', fhir_json: 'application/json', fhir_xml: 'application/xml', cda_prf: 'application/xml' };
   try {
-    const res = await fetch('/api/prescriptions', {
+    const res = await fetch(API_BASE_URL + '/api/prescriptions', {
       method: 'POST',
       headers: { 'Content-Type': ctMap[fmt] },
       body: payload,
@@ -1011,11 +1011,13 @@ async function loadAtcHierarchy() {
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
+const API_BASE_URL = 'https://ip87-106-10-111.pbiaas.com';
+
 async function apiFetch(url, method = 'GET', body = null) {
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
+    const res = await fetch(API_BASE_URL + url, opts);
     if (!res.ok) return null;
     const text = await res.text();
     return text ? JSON.parse(text) : null;
