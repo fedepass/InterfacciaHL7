@@ -1,11 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { RoutingFilterEntity } from '../database/entities/routing-filter.entity';
-import { AppConfigEntity } from '../database/entities/app-config.entity';
-import { AnaOutputFieldEntity } from '../database/entities/ana-output-field.entity';
-import { AppConfigOutputFieldEntity } from '../database/entities/app-config-output-field.entity';
+import * as fs from 'fs-extra';
+import * as path from 'path';
 
 export interface FilterConditions {
   drugCategories?: string[] | null;
@@ -35,78 +31,71 @@ export interface AppConfig {
   outputFields: string[] | null;
 }
 
+const CONFIG_PATH = path.join(process.cwd(), 'data', 'config.json');
+
 const DEFAULT_CONFIG: AppConfig = {
   filters: [],
   outputFields: null,
 };
 
+const STATIC_CATALOG: OutputFieldDef[] = [
+  { fieldPath: 'prescriptionId',          label: 'ID Prescrizione',    groupName: 'Generale',     description: null, required: true,  sortOrder: 1  },
+  { fieldPath: 'status',                  label: 'Stato',              groupName: 'Generale',     description: null, required: true,  sortOrder: 2  },
+  { fieldPath: 'priority',               label: 'Priorità',           groupName: 'Generale',     description: null, required: false, sortOrder: 3  },
+  { fieldPath: 'deliveryStatus',         label: 'Stato Consegna',     groupName: 'Generale',     description: null, required: false, sortOrder: 4  },
+  { fieldPath: 'patient.id',             label: 'ID Paziente',        groupName: 'Paziente',     description: null, required: true,  sortOrder: 5  },
+  { fieldPath: 'patient.ward',           label: 'Reparto',            groupName: 'Paziente',     description: null, required: false, sortOrder: 6  },
+  { fieldPath: 'preparation.drug',       label: 'Farmaco',            groupName: 'Preparazione', description: null, required: true,  sortOrder: 7  },
+  { fieldPath: 'preparation.category',   label: 'Categoria',          groupName: 'Preparazione', description: null, required: false, sortOrder: 8  },
+  { fieldPath: 'preparation.code',       label: 'Codice',             groupName: 'Preparazione', description: null, required: false, sortOrder: 9  },
+  { fieldPath: 'preparation.dosage',     label: 'Dosaggio',           groupName: 'Preparazione', description: null, required: false, sortOrder: 10 },
+  { fieldPath: 'preparation.dosageValue',label: 'Valore Dosaggio',    groupName: 'Preparazione', description: null, required: false, sortOrder: 11 },
+  { fieldPath: 'preparation.dosageUnit', label: 'Unità Dosaggio',     groupName: 'Preparazione', description: null, required: false, sortOrder: 12 },
+  { fieldPath: 'preparation.solvent',    label: 'Solvente',           groupName: 'Preparazione', description: null, required: false, sortOrder: 13 },
+  { fieldPath: 'preparation.volume',     label: 'Volume',             groupName: 'Preparazione', description: null, required: false, sortOrder: 14 },
+  { fieldPath: 'preparation.volumeValue',label: 'Valore Volume',      groupName: 'Preparazione', description: null, required: false, sortOrder: 15 },
+  { fieldPath: 'preparation.volumeUnit', label: 'Unità Volume',       groupName: 'Preparazione', description: null, required: false, sortOrder: 16 },
+  { fieldPath: 'timestamps.received',    label: 'Ricevuto',           groupName: 'Timestamp',    description: null, required: false, sortOrder: 17 },
+  { fieldPath: 'timestamps.dispatched',  label: 'Inviato',            groupName: 'Timestamp',    description: null, required: false, sortOrder: 18 },
+  { fieldPath: 'timestamps.requiredBy',  label: 'Richiesto Entro',    groupName: 'Timestamp',    description: null, required: false, sortOrder: 19 },
+  { fieldPath: 'timestamps.sentToApi',   label: 'Inviato ad API',     groupName: 'Timestamp',    description: null, required: false, sortOrder: 20 },
+];
+
 @Injectable()
 export class ConfigService implements OnModuleInit {
   private config: AppConfig = { ...DEFAULT_CONFIG };
-  private catalog: OutputFieldDef[] = [];
-
-  constructor(
-    @InjectRepository(RoutingFilterEntity)
-    private readonly filterRepo: Repository<RoutingFilterEntity>,
-    @InjectRepository(AppConfigEntity)
-    private readonly appConfigRepo: Repository<AppConfigEntity>,
-    @InjectRepository(AnaOutputFieldEntity)
-    private readonly catalogRepo: Repository<AnaOutputFieldEntity>,
-    @InjectRepository(AppConfigOutputFieldEntity)
-    private readonly enabledFieldsRepo: Repository<AppConfigOutputFieldEntity>,
-  ) {}
 
   async onModuleInit() {
     try {
-      await this.loadFromDb();
+      await this.loadFromFile();
     } catch (e) {
-      console.error('Impossibile caricare configurazione dal DB, uso defaults:', e.message);
+      console.error('Impossibile caricare configurazione dal file, uso defaults:', e.message);
       this.config = { ...DEFAULT_CONFIG };
     }
   }
 
-  private async loadFromDb() {
-    const [filterEntities, appConfigEntity, catalogEntities, enabledEntities] = await Promise.all([
-      this.filterRepo.find({ order: { priority: 'ASC' } }),
-      this.appConfigRepo.findOne({ where: { id: 1 } }),
-      this.catalogRepo.find({ order: { sortOrder: 'ASC' } }),
-      this.enabledFieldsRepo.find({ order: { sortOrder: 'ASC' } }),
-    ]);
-
-    if (!appConfigEntity) {
-      await this.appConfigRepo.save({ id: 1, outputFields: null });
+  private async loadFromFile(): Promise<void> {
+    if (!(await fs.pathExists(CONFIG_PATH))) {
+      this.config = { ...DEFAULT_CONFIG };
+      return;
     }
-
-    this.catalog = catalogEntities.map((e) => ({
-      fieldPath: e.fieldPath,
-      label: e.label,
-      groupName: e.groupName,
-      description: e.description,
-      required: e.required,
-      sortOrder: e.sortOrder,
-    }));
-
-    // Enabled fields: usa app_config_output_fields se popolata,
-    // altrimenti fallback a app_config.output_fields (JSON legacy)
-    let outputFields: string[] | null = null;
-    if (enabledEntities.length > 0) {
-      outputFields = enabledEntities.map((e) => e.fieldPath);
-    } else if (appConfigEntity?.outputFields?.length) {
-      outputFields = appConfigEntity.outputFields;
-      // Migra nella nuova tabella relazionale
-      await this._persistEnabledFields(outputFields);
-    }
-
+    const raw = await fs.readJson(CONFIG_PATH);
     this.config = {
-      outputFields,
-      filters: filterEntities.map((e) => this.entityToFilter(e)),
+      filters: raw.filters ?? [],
+      outputFields: raw.outputFields ?? null,
     };
+  }
+
+  private async saveToFile(): Promise<void> {
+    await fs.ensureDir(path.dirname(CONFIG_PATH));
+    const existing = (await fs.pathExists(CONFIG_PATH)) ? await fs.readJson(CONFIG_PATH) : {};
+    await fs.writeJson(CONFIG_PATH, { ...existing, filters: this.config.filters, outputFields: this.config.outputFields }, { spaces: 2 });
   }
 
   // ── Catalogo ─────────────────────────────────────────────────────────────
 
   getCatalog(): OutputFieldDef[] {
-    return this.catalog;
+    return STATIC_CATALOG;
   }
 
   // ── Lettura ────────────────────────────────────────────────────────────────
@@ -123,24 +112,7 @@ export class ConfigService implements OnModuleInit {
 
   async setOutputFields(fields: string[] | null): Promise<void> {
     this.config.outputFields = fields;
-    await this._persistEnabledFields(fields);
-    // Aggiorna anche il JSON legacy per retrocompatibilità
-    this.appConfigRepo
-      .save({ id: 1, outputFields: fields })
-      .catch((e) => console.error('DB error setOutputFields legacy:', e.message));
-  }
-
-  private async _persistEnabledFields(fields: string[] | null): Promise<void> {
-    await this.enabledFieldsRepo.clear();
-    if (fields && fields.length > 0) {
-      const entities = fields.map((fp, idx) => {
-        const e = new AppConfigOutputFieldEntity();
-        e.fieldPath = fp;
-        e.sortOrder = idx;
-        return e;
-      });
-      await this.enabledFieldsRepo.save(entities);
-    }
+    await this.saveToFile();
   }
 
   // ── Filtri ─────────────────────────────────────────────────────────────────
@@ -148,9 +120,7 @@ export class ConfigService implements OnModuleInit {
   addFilter(dto: Omit<RoutingFilter, 'id'>): RoutingFilter {
     const filter: RoutingFilter = { id: uuidv4(), ...dto };
     this.config.filters.push(filter);
-    this.filterRepo
-      .save(this.filterToEntity(filter))
-      .catch((e) => console.error('DB error addFilter:', e.message));
+    this.saveToFile().catch((e) => console.error('Errore salvataggio filtro:', e.message));
     return filter;
   }
 
@@ -159,9 +129,7 @@ export class ConfigService implements OnModuleInit {
     if (idx === -1) return null;
     this.config.filters[idx] = { ...this.config.filters[idx], ...dto };
     const updated = this.config.filters[idx];
-    this.filterRepo
-      .save(this.filterToEntity(updated))
-      .catch((e) => console.error('DB error updateFilter:', e.message));
+    this.saveToFile().catch((e) => console.error('Errore aggiornamento filtro:', e.message));
     return updated;
   }
 
@@ -169,9 +137,7 @@ export class ConfigService implements OnModuleInit {
     const before = this.config.filters.length;
     this.config.filters = this.config.filters.filter((f) => f.id !== id);
     if (this.config.filters.length < before) {
-      this.filterRepo
-        .delete(id)
-        .catch((e) => console.error('DB error removeFilter:', e.message));
+      this.saveToFile().catch((e) => console.error('Errore rimozione filtro:', e.message));
       return true;
     }
     return false;
@@ -201,33 +167,5 @@ export class ConfigService implements OnModuleInit {
       }
     }
     return out;
-  }
-
-  // ── Conversioni entity ↔ interfacce ───────────────────────────────────────
-
-  private entityToFilter(e: RoutingFilterEntity): RoutingFilter {
-    return {
-      id: e.id,
-      name: e.name,
-      enabled: e.enabled,
-      priority: e.priority,
-      conditions: {
-        drugCategories: e.conditionDrugCats ?? null,
-        ward: e.conditionWard ?? null,
-        urgency: e.conditionUrgency ?? null,
-      },
-    };
-  }
-
-  private filterToEntity(f: RoutingFilter): Partial<RoutingFilterEntity> {
-    return {
-      id: f.id,
-      name: f.name,
-      enabled: f.enabled,
-      priority: f.priority,
-      conditionDrugCats: f.conditions.drugCategories ?? null,
-      conditionWard: f.conditions.ward ?? null,
-      conditionUrgency: f.conditions.urgency ?? null,
-    };
   }
 }

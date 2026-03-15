@@ -3,11 +3,11 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import * as path from 'path';
 import { json, text } from 'express';
 
-import { DatabaseModule } from './database/database.module';
 import { ConfigModule } from './config/config.module';
 import { ParsersModule } from './parsers/parsers.module';
 import { DispatcherModule } from './dispatcher/dispatcher.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
+
 @Module({
   imports: [
     ServeStaticModule.forRoot({
@@ -15,7 +15,6 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
       serveRoot: '/',
       exclude: ['/api/(.*)'],
     }),
-    DatabaseModule,
     ConfigModule,
     ParsersModule,
     DispatcherModule,

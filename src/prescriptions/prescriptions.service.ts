@@ -1,150 +1,147 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
 import { ParsersService } from '../parsers/parsers.service';
 import { DispatcherService, DispatchResult } from '../dispatcher/dispatcher.service';
-import { PrescriptionEntity } from '../database/entities/prescription.entity';
-import { IncomingMessageEntity } from '../database/entities/incoming-message.entity';
+
+const PHARMAR_API = process.env.PHARMAR_API_URL ?? 'http://127.0.0.1:3002';
+const PHARMAR_KEY = process.env.PHARMAR_API_KEY ?? '';
+
+function apiHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-Api-Key': PHARMAR_KEY };
+}
+
+function toPharmarPriority(p: string): string {
+  if (p === 'STAT') return 'alta';
+  if (p === 'URGENT') return 'media';
+  return 'bassa';
+}
+
+function fromPharmarPriority(p: string): 'STAT' | 'URGENT' | 'ROUTINE' {
+  if (p === 'alta') return 'STAT';
+  if (p === 'media') return 'URGENT';
+  return 'ROUTINE';
+}
+
+function toPharmarPrepType(route?: string): string {
+  return route && /IV|infus/i.test(route) ? 'infusione_iv' : 'siringa_ricostituita';
+}
+
+function fromPharmarStatus(status: string): 'PENDING' | 'SENT' {
+  return status === 'completata' ? 'SENT' : 'PENDING';
+}
 
 @Injectable()
 export class PrescriptionsService {
   constructor(
     private readonly parsersService: ParsersService,
     private readonly dispatcherService: DispatcherService,
-    @InjectRepository(PrescriptionEntity)
-    private readonly prescriptionRepo: Repository<PrescriptionEntity>,
-    @InjectRepository(IncomingMessageEntity)
-    private readonly incomingRepo: Repository<IncomingMessageEntity>,
   ) {}
 
-  async receive(raw: string, sourceIp?: string): Promise<DispatchResult> {
-    const detectedFormat = this.parsersService.detectFormat(raw.trim());
-    const logEntry: Partial<IncomingMessageEntity> = {
-      id: uuidv4(),
-      rawPayload: raw,
-      detectedFormat,
-      sourceIp: sourceIp ?? null,
-      parseStatus: 'SUCCESS',
-      errorMessage: null,
-      prescriptionId: null,
+  async receive(raw: string, _sourceIp?: string): Promise<DispatchResult> {
+    const normalized = this.parsersService.parse(raw);
+    const result = this.dispatcherService.dispatch(normalized);
+
+    const body = {
+      drug: result.preparation.drug,
+      date: result.timestamps.requiredBy
+        ? result.timestamps.requiredBy.slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+      patient_id: result.patient.id,
+      patient_name: result.patient.name,
+      priority: toPharmarPriority(result.priority),
+      prep_type: toPharmarPrepType(result.preparation.route),
+      patient_ward: result.patient.ward ?? null,
+      dosage: result.preparation.dosage ?? null,
+      route: result.preparation.route ?? null,
+      volume: result.preparation.volume ?? null,
+      notes: result.notes ?? null,
     };
 
-    let result: DispatchResult;
-    try {
-      const normalized = this.parsersService.parse(raw);
-      result = this.dispatcherService.dispatch(normalized);
-      await this.prescriptionRepo.save(this.toEntity(result));
-      logEntry.prescriptionId = result.prescriptionId;
-    } catch (e) {
-      logEntry.parseStatus = 'ERROR';
-      logEntry.errorMessage = e.message ?? String(e);
-      await this.incomingRepo.save(logEntry);
-      throw e;
+    const res = await fetch(`${PHARMAR_API}/api/v1/preparations`, {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`pharmar-api error ${res.status}: ${text}`);
     }
 
-    await this.incomingRepo.save(logEntry);
+    const prep = await res.json() as any;
+    result.prescriptionId = prep.id;
     return result;
   }
 
   async findAll(deliveryStatus?: string): Promise<DispatchResult[]> {
-    const qb = this.prescriptionRepo
-      .createQueryBuilder('p')
-      .orderBy('p.tsDispatched', 'DESC')
-      .take(200);
+    const res = await fetch(`${PHARMAR_API}/api/v1/preparations?limit=200`, {
+      headers: apiHeaders(),
+    });
+    if (!res.ok) return [];
+    const { data } = await res.json() as any;
 
-    if (deliveryStatus) {
-      qb.andWhere('p.deliveryStatus = :ds', { ds: deliveryStatus.toUpperCase() });
-    }
+    const filtered = deliveryStatus
+      ? data.filter((p: any) =>
+          deliveryStatus.toUpperCase() === 'SENT'
+            ? p.status === 'completata'
+            : p.status !== 'completata',
+        )
+      : data;
 
-    const entities = await qb.getMany();
-    return entities.map((e) => this.toDispatchResult(e));
+    return filtered.map((p: any) => this.prepToDispatchResult(p));
   }
 
   async findOne(id: string): Promise<DispatchResult | undefined> {
-    const entity = await this.prescriptionRepo.findOne({ where: { id } });
-    return entity ? this.toDispatchResult(entity) : undefined;
+    const res = await fetch(`${PHARMAR_API}/api/v1/preparations/${id}`, {
+      headers: apiHeaders(),
+    });
+    if (!res.ok) return undefined;
+    const prep = await res.json();
+    return this.prepToDispatchResult(prep);
   }
 
   async markAsSent(id: string): Promise<void> {
-    await this.prescriptionRepo.update(id, {
-      deliveryStatus: 'SENT',
-      tsSentToApi: new Date(),
+    await fetch(`${PHARMAR_API}/api/v1/preparations/${id}`, {
+      method: 'PATCH',
+      headers: apiHeaders(),
+      body: JSON.stringify({ status: 'completata' }),
     });
   }
 
-  // ── Conversioni ──────────────────────────────────────────────
-
-  private toEntity(r: DispatchResult): Partial<PrescriptionEntity> {
+  private prepToDispatchResult(p: any): DispatchResult {
     return {
-      id: r.prescriptionId,
-      status: r.status,
-      deliveryStatus: r.deliveryStatus,
-      priority: r.priority,
-      sourceFormat: r.sourceFormat,
-      prescribedBy: r.prescribedBy ?? null,
-      notes: r.notes ?? null,
-      patientId: r.patient.id,
-      patientName: r.patient.name,
-      patientWard: r.patient.ward,
-      patientBedNumber: r.patient.bedNumber ?? null,
-      prepDrug: r.preparation.drug,
-      prepCategory: r.preparation.category,
-      prepCode: r.preparation.code ?? null,
-      prepDosage: r.preparation.dosage,
-      prepDosageValue: r.preparation.dosageValue ?? null,
-      prepDosageUnit: r.preparation.dosageUnit ?? null,
-      prepRoute: r.preparation.route,
-      prepSolvent: r.preparation.solvent ?? null,
-      prepVolume: r.preparation.volume ?? null,
-      prepVolumeValue: r.preparation.volumeValue ?? null,
-      prepVolumeUnit: r.preparation.volumeUnit ?? null,
-      prepInfusionRate: r.preparation.infusionRate ?? null,
-      prepFinalConcentration: r.preparation.finalConcentration ?? null,
-      prepFrequency: r.preparation.frequency,
-      tsReceived: new Date(r.timestamps.received),
-      tsDispatched: new Date(r.timestamps.dispatched),
-      tsRequiredBy: r.timestamps.requiredBy ? new Date(r.timestamps.requiredBy) : null,
-      tsSentToApi: r.timestamps.sentToApi ? new Date(r.timestamps.sentToApi) : null,
-    };
-  }
-
-  private toDispatchResult(e: PrescriptionEntity): DispatchResult {
-    return {
-      prescriptionId: e.id,
+      prescriptionId: p.id,
       status: 'DISPATCHED',
-      deliveryStatus: e.deliveryStatus as 'PENDING' | 'SENT',
-      priority: e.priority as any,
-      sourceFormat: e.sourceFormat as any,
-      prescribedBy: e.prescribedBy ?? undefined,
-      notes: e.notes ?? undefined,
+      deliveryStatus: fromPharmarStatus(p.status),
+      priority: fromPharmarPriority(p.priority),
+      sourceFormat: 'HL7V2',
+      prescribedBy: undefined,
+      notes: p.notes ?? undefined,
       patient: {
-        id: e.patientId,
-        name: e.patientName,
-        ward: e.patientWard,
-        bedNumber: e.patientBedNumber ?? undefined,
+        id: p.patient_id,
+        name: p.patient_name,
+        ward: p.patient_ward ?? '',
+        bedNumber: undefined,
       },
       preparation: {
-        drug: e.prepDrug,
-        category: e.prepCategory,
-        code: e.prepCode ?? undefined,
-        dosage: e.prepDosage,
-        dosageValue: e.prepDosageValue != null ? Number(e.prepDosageValue) : undefined,
-        dosageUnit: e.prepDosageUnit ?? undefined,
-        route: e.prepRoute,
-        solvent: e.prepSolvent ?? undefined,
-        volume: e.prepVolume ?? undefined,
-        volumeValue: e.prepVolumeValue != null ? Number(e.prepVolumeValue) : undefined,
-        volumeUnit: e.prepVolumeUnit ?? undefined,
-        infusionRate: e.prepInfusionRate ?? undefined,
-        finalConcentration: e.prepFinalConcentration ?? undefined,
-        frequency: e.prepFrequency,
+        drug: p.drug,
+        category: '',
+        dosage: p.dosage ?? '',
+        route: p.route ?? '',
+        frequency: '',
+        dosageValue: undefined,
+        dosageUnit: undefined,
+        solvent: undefined,
+        volume: p.volume ?? undefined,
+        volumeValue: undefined,
+        volumeUnit: undefined,
+        infusionRate: undefined,
+        finalConcentration: undefined,
       },
       timestamps: {
-        received: e.tsReceived?.toISOString(),
-        dispatched: e.tsDispatched?.toISOString(),
-        requiredBy: e.tsRequiredBy?.toISOString(),
-        sentToApi: e.tsSentToApi?.toISOString(),
+        received: p.created_at,
+        dispatched: p.created_at,
+        requiredBy: p.date ? `${p.date}T00:00:00.000Z` : undefined,
+        sentToApi: p.finished_at ?? undefined,
       },
     };
   }
