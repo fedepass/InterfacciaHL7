@@ -439,16 +439,18 @@ PUT    /api/config/output-fields   Imposta campi abilitati { "enabledFields": ["
 
 ### 4.8 Persistenza
 
-Tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM** (con `synchronize: false`).
+Tutta la persistenza è affidata a un database **MySQL 8** gestito via **TypeORM** (con `synchronize: false`). Tabelle utilizzate:
 
-| Dato | Meccanismo | Tabella/i |
-|------|-----------|-----------|
-| Filtri di configurazione | DB, caricata in cache al boot | `routing_filters` |
-| Catalogo campi output | DB, sola lettura a runtime | `ana_output_fields` |
-| Campi output abilitati | DB, relazionale con FK | `app_config_output_fields` |
-| Configurazione generale | DB, singleton | `app_config` |
-| Prescrizioni ricevute + dispatch result | DB, scritto ad ogni POST | `prescriptions` |
-| Log payload in ingresso | DB, scritto ad ogni POST (prima del parsing) | `incoming_messages` |
+| Dato | Tabella |
+|------|---------|
+| Filtri di configurazione | `routing_filters` |
+| Catalogo campi output | `ana_output_fields` |
+| Campi output abilitati | `app_config_output_fields` |
+| Configurazione generale | `app_config` |
+| Prescrizioni ricevute | `prescriptions` |
+| Log payload in ingresso | `incoming_messages` |
+
+Per lo schema completo, il DDL di installazione, i dati seed e le migrazioni vedere **`DatabaseHL7.MD`**.
 
 **Flusso di avvio (`onModuleInit`):**
 1. `ConfigService` legge da DB filtri e `app_config` e popola la cache in-memory
@@ -602,7 +604,8 @@ servizio-hl7/
 │   ├── v2.1_remove_drug_classification.sql  Rimozione classificazione farmaci da DB e parser
 │   └── v2.2_remove_cappa_output_fields.sql  Pulizia output fields e colonne obsolete cappe
 ├── .env                                     Variabili connessione DB per sviluppo locale (non in git)
-├── HL7Service.MD                            Questo documento
+├── HL7Service.MD                            Questo documento (servizio, API, parser)
+├── DatabaseHL7.MD                           Schema DB, DDL completo, seed, migrazioni
 ├── Dockerfile
 ├── docker-compose.yml
 ├── package.json
@@ -613,56 +616,9 @@ servizio-hl7/
 
 ## 9. Schema Database
 
-Il database `hl7service` (MySQL 8) è gestito con `synchronize: false` in TypeORM. Le migrazioni DDL sono applicate manualmente tramite i file SQL nella cartella `migrations/`.
+Schema completo, DDL di installazione, dati seed e migrazioni sono documentati in **`DatabaseHL7.MD`**.
 
-### 9.1 PRESCRIZIONI
-
-| Tabella | PK | Contenuto |
-|---|---|---|
-| `prescriptions` | `id` VARCHAR UUID | Prescrizioni ricevute + snapshot DispatchResult. Colonne: `status`, `delivery_status` (PENDING/SENT), `priority`, `source_format`, `prescribed_by`, `notes`, `patient_id`, `patient_name`, `patient_ward`, `patient_bed_number`, `prep_drug`, `prep_category`, `prep_code`, `prep_dosage`, `prep_dosage_value` (DECIMAL), `prep_dosage_unit`, `prep_route`, `prep_solvent`, `prep_volume`, `prep_volume_value` (DECIMAL), `prep_volume_unit`, `prep_infusion_rate`, `prep_final_concentration`, `prep_frequency`, `ts_received`, `ts_dispatched`, `ts_required_by`, `ts_sent_to_api`. |
-| `incoming_messages` | `id` VARCHAR UUID | Log di ogni payload ricevuto: `raw_payload` (MEDIUMTEXT), `detected_format` (ENUM: HL7V2/FHIR_JSON/FHIR_XML/CDA_PRF/UNKNOWN), `source_ip`, `parse_status` (ENUM: SUCCESS/ERROR), `error_message`, `prescription_id`, `received_at`. |
-
-### 9.2 CONFIGURAZIONE
-
-| Tabella | PK | Contenuto |
-|---|---|---|
-| `app_config` | `id` INT (singleton = 1) | Configurazione generale del servizio |
-| `routing_filters` | `id` VARCHAR UUID | Filtri configurabili: `name`, `enabled`, `priority`, `condition_drug_cats` (JSON), `condition_ward`, `condition_urgency` |
-| `ana_output_fields` | `field_path` VARCHAR (UNIQUE) | Catalogo di tutti i campi configurabili (29 voci): `label`, `group_name` (Generale/Paziente/Preparazione Farmaco/Timestamp), `description`, `required` (TINYINT), `sort_order` |
-| `app_config_output_fields` | `field_path` VARCHAR (FK → ana_output_fields) | Campi output abilitati: `sort_order`. Vuoto = tutti i campi inclusi. |
-
-### 9.3 Migrazioni DDL
-
-**v2.0** — `migrations/v2.0_remove_cappe.sql`: rimuove tutte le strutture legate alle cappe:
-
-```sql
--- Rimozione FK e colonne da prescriptions
-ALTER TABLE prescriptions DROP FOREIGN KEY fk_prescription_cappa;
-ALTER TABLE prescriptions DROP INDEX idx_assigned_cappa;
-ALTER TABLE prescriptions DROP COLUMN assigned_cappa_id,
-                           DROP COLUMN assigned_cappa,
-                           DROP COLUMN routing_info;
-
--- Rimozione colonne da routing_filters
-ALTER TABLE routing_filters DROP COLUMN target_cappa_id;
-ALTER TABLE routing_filters DROP COLUMN fallback_to_default;
-
--- Rimozione colonna da app_config
-ALTER TABLE app_config DROP COLUMN default_routing_strategy;
-
--- Eliminazione tabelle cappe
-SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS cappa_queue;
-DROP TABLE IF EXISTS cappa_specializations;
-DROP TABLE IF EXISTS ana_cappa_statuses;
-DROP TABLE IF EXISTS ana_cappa_types;
-DROP TABLE IF EXISTS cappe;
-SET FOREIGN_KEY_CHECKS = 1;
-```
-
-**v2.1** — `migrations/v2.1_remove_drug_classification.sql`: rimuove tabelle categorie farmaco (`drug_categories`, `drug_category_aliases`, `drug_category_atc`, `atc_level1`, `atc_level2`). La categorizzazione rimane statica in `drug-category.util.ts`.
-
-**v2.2** — `migrations/v2.2_remove_cappa_output_fields.sql`: pulizia colonne output fields obsolete (riferimenti cappe) e preparazione schema per `ana_output_fields` / `app_config_output_fields`.
+Il database `hl7service` (MySQL 8) è gestito con `synchronize: false` in TypeORM; le modifiche DDL si applicano manualmente.
 
 ---
 
